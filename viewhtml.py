@@ -181,24 +181,7 @@ def main():
     
     # --- Khởi tạo Session State An toàn ---
     
-    default_html = ('''
-        "<!DOCTYPE html>\n"
-        "<html>\n"
-        "<head>\n"
-        "  <title>Nội dung Báo Cáo</title>\n"
-        "  <style>\n"
-        "    body { font-family: 'Times New Roman', serif; padding: 20px; }\n"
-        "    h1 { color: #8E44AD; border-bottom: 2px solid #8E44AD; padding-bottom: 5px; }\n"
-        "    p { line-height: 1.6; }\n"
-        "  </style>\n"
-        "</head>\n"
-        "<body>\n"
-        "  <h1>Báo Cáo Chính Thức</h1>\n"
-        "  <p>Đây là phần nội dung chính của báo cáo. Mọi thay đổi trong phần chỉnh sửa sẽ được phản ánh tại đây.</p>\n"
-        "  <p>Sử dụng phần **'Tải lên Ảnh và Nhập Mô tả'** để tạo một ảnh lưới duy nhất và đính kèm vào cuối báo cáo.</p>\n"
-        "</body>\n"
-        "</html>"
-    ''')
+    default_html = ()
     
     
     # Sử dụng setdefault để đảm bảo các khóa luôn tồn tại, tránh KeyError
@@ -322,6 +305,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
