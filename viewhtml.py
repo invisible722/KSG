@@ -180,7 +180,7 @@ def main():
     st.title("HTML Report Generator & PDF Exporter (Grid Image)")
     
     # --- Khởi tạo Session State An toàn ---
-    <!--
+    '''
     default_html = (
         "<!DOCTYPE html>\n"
         "<html>\n"
@@ -199,7 +199,7 @@ def main():
         "</body>\n"
         "</html>"
     )
-    -->
+    '''
     
     # Sử dụng setdefault để đảm bảo các khóa luôn tồn tại, tránh KeyError
     st.session_state.setdefault('html_code', default_html)
@@ -322,4 +322,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
