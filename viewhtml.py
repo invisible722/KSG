@@ -181,7 +181,7 @@ def main():
     
     # --- Khởi tạo Session State An toàn ---
     
-    default_html = ()
+    default_html = None
     
     
     # Sử dụng setdefault để đảm bảo các khóa luôn tồn tại, tránh KeyError
@@ -305,6 +305,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
