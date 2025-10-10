@@ -180,8 +180,8 @@ def main():
     st.title("HTML Report Generator & PDF Exporter (Grid Image)")
     
     # --- Khởi tạo Session State An toàn ---
-    '''
-    default_html = (
+    
+    default_html = ('''
         "<!DOCTYPE html>\n"
         "<html>\n"
         "<head>\n"
@@ -198,8 +198,8 @@ def main():
         "  <p>Sử dụng phần **'Tải lên Ảnh và Nhập Mô tả'** để tạo một ảnh lưới duy nhất và đính kèm vào cuối báo cáo.</p>\n"
         "</body>\n"
         "</html>"
-    )
-    '''
+    ''')
+    
     
     # Sử dụng setdefault để đảm bảo các khóa luôn tồn tại, tránh KeyError
     st.session_state.setdefault('html_code', default_html)
@@ -322,5 +322,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
