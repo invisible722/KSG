@@ -274,6 +274,7 @@ print(f"Kiểu dữ liệu của 'base64_image_html': {type(st.session_state.get
 
         
         final_html_content = str(st.session_state.get("html_code", "")) + str(st.session_state.get("base64_image_html", ""))
+
         
         # 4. Tạo Nút Xuất PDF trong cùng khối HTML
         pdf_button_html = f"""
@@ -309,6 +310,7 @@ print(f"Kiểu dữ liệu của 'base64_image_html': {type(st.session_state.get
 
 if __name__ == "__main__":
     main()
+
 
 
 
