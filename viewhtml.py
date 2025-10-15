@@ -269,12 +269,10 @@ def main():
         st.subheader("3. HTML Preview & Xuất PDF")
 
         # Gộp HTML của người dùng và HTML hình ảnh Base64 đã tạo
-print(f"Kiểu dữ liệu của 'html_code': {type(st.session_state.get('html_code'))}")
-print(f"Kiểu dữ liệu của 'base64_image_html': {type(st.session_state.get('base64_image_html'))}")
-
-        
+        print(f"Kiểu dữ liệu của 'html_code': {type(st.session_state.get('html_code'))}")
+        print(f"Kiểu dữ liệu của 'base64_image_html': {type(st.session_state.get('base64_image_html'))}")
+      
         final_html_content = str(st.session_state.get("html_code", "")) + str(st.session_state.get("base64_image_html", ""))
-
         
         # 4. Tạo Nút Xuất PDF trong cùng khối HTML
         pdf_button_html = f"""
@@ -310,6 +308,7 @@ print(f"Kiểu dữ liệu của 'base64_image_html': {type(st.session_state.get
 
 if __name__ == "__main__":
     main()
+
 
 
 
