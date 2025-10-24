@@ -4,29 +4,141 @@ import io
 import base64
 import warnings
 
+# ============================================================
+# CẤU HÌNH VÀ HÀM HỖ TRỢ
+# ============================================================
+
 st.set_page_config(page_title="Phiếu đề nghị thanh toán", layout="wide")
 
-# ===== Hàm rerun an toàn =====
+# Hàm rerun an toàn (Giữ nguyên)
 def safe_rerun():
     """Sử dụng st.rerun() để làm mới ứng dụng một cách an toàn."""
     st.rerun()
 
-# ===== Hàm định dạng tiền tệ =====
+# Hàm định dạng tiền tệ (Giữ nguyên)
 def format_currency(value):
     """Định dạng giá trị số thành chuỗi tiền tệ (ví dụ: 1000000 -> 1,000,000)."""
     try:
-        value = float(str(value).replace(",", "").strip())
+        if isinstance(value, str):
+            value = float(value.replace(",", "").strip() or 0)
+        elif value is None:
+            return ""
+        
         return f"{value:,.0f}"
     except:
         return value
 
-# ===== Khởi tạo session state =====
-if "table1" not in st.session_state:
+# ===== HÀM CALLBACK RESET INPUT (ĐÃ THÊM) =====
+def reset_table1_inputs():
+    """Reset các giá trị input của Bảng 1 về trạng thái mặc định."""
+    # Chỉ reset session state, Streamlit sẽ tự cập nhật widget khi rerun
+    st.session_state["mota_input_key"] = ""
+    st.session_state["donvi_input_key"] = ""
+    st.session_state["soluong_input_key"] = 0.0
+    st.session_state["dongia_input_key"] = ""
+    st.session_state["ghichu1_input_key"] = ""
+
+def reset_table2_inputs():
+    """Reset các giá trị input của Bảng 2 về trạng thái mặc định."""
+    st.session_state["goi_input"] = ""
+    st.session_state["dutoan_raw"] = 0.0
+    st.session_state["dachi_raw"] = 0.0
+    st.session_state["dexuat_raw"] = 0.0
+    st.session_state["ghichu2_input"] = ""
+
+def reset_app_data():
+    """Xóa tất cả dữ liệu và reset các input fields."""
     st.session_state.table1 = []
-if "table2" not in st.session_state:
     st.session_state.table2 = []
-if "uploaded_images" not in st.session_state:
     st.session_state.uploaded_images = []
+    
+    # Reset input fields Bảng 1 & Bảng 2
+    reset_table1_inputs() 
+    reset_table2_inputs()
+
+# ===== HÀM CALLBACK THÊM DÒNG (ĐÃ THÊM) =====
+def add_row_table1_and_reset():
+    """Xử lý logic thêm dòng cho Bảng 1 và reset input."""
+    # Lấy giá trị từ session state
+    dongia_raw = st.session_state.dongia_input_key
+    mota = st.session_state.mota_input_key
+    soluong = st.session_state.soluong_input_key
+    donvi = st.session_state.donvi_input_key
+    ghichu1 = st.session_state.ghichu1_input_key
+    
+    try:
+        dongia_value = float(str(dongia_raw).replace(",", "").strip() or 0)
+        
+        if not mota.strip():
+             # Dùng warning ở đây sẽ bị xóa khi rerun, cần kiểm tra lại logic hiển thị.
+             # Tuy nhiên, ta vẫn reset để đảm bảo trạng thái sạch.
+             return # Thoát hàm nếu lỗi
+        
+        total = dongia_value * soluong
+        
+        st.session_state.table1.append({
+            "Mô tả": mota,
+            "Đơn vị": donvi,
+            "Số lượng": soluong,
+            "Đơn giá": format_currency(dongia_value),
+            "Đơn giá_raw": dongia_value,
+            "Tổng": format_currency(total),
+            "Tổng_raw": total,
+            "Ghi chú": ghichu1
+        })
+        
+        # Reset inputs sau khi thêm thành công (tránh lỗi APIException)
+        reset_table1_inputs()
+        
+    except ValueError:
+        # Nếu có lỗi, không reset input để người dùng sửa
+        st.error("⚠️ Vui lòng nhập đơn giá hợp lệ (chỉ số).") # Dùng st.error để thông báo rõ hơn
+        # KHÔNG GỌI rerun Ở ĐÂY để cho phép callback hoàn thành
+
+def add_row_table2_and_reset():
+    """Xử lý logic thêm dòng cho Bảng 2 và reset input."""
+    goi = st.session_state.goi_input
+    dutoan_value = st.session_state.dutoan_raw
+    dachi_value = st.session_state.dachi_raw
+    dexuat_value = st.session_state.dexuat_raw
+
+    # TÍNH TOÁN CỘT "CÒN LẠI"
+    con_lai_value = dutoan_value - dachi_value - dexuat_value
+    
+    st.session_state.table2.append({
+        "Gói": goi,
+        "Dự toán": format_currency(dutoan_value),
+        "Đã chi": format_currency(dachi_value),
+        "Đề xuất chi tuần này": format_currency(dexuat_value),
+        "Còn lại": format_currency(con_lai_value),
+        "Ghi chú": st.session_state.ghichu2_input
+    })
+    
+    # Reset inputs sau khi thêm thành công
+    reset_table2_inputs()
+
+
+# ============================================================
+# KHỞI TẠO SESSION STATE
+# ============================================================
+# Khởi tạo keys cho input Bảng 1 (Cải tiến 1)
+if "table1" not in st.session_state: st.session_state.table1 = []
+if "table2" not in st.session_state: st.session_state.table2 = []
+if "uploaded_images" not in st.session_state: st.session_state.uploaded_images = []
+
+if "mota_input_key" not in st.session_state: st.session_state.mota_input_key = ""
+if "donvi_input_key" not in st.session_state: st.session_state.donvi_input_key = ""
+if "soluong_input_key" not in st.session_state: st.session_state.soluong_input_key = 0.0
+if "dongia_input_key" not in st.session_state: st.session_state.dongia_input_key = ""
+if "ghichu1_input_key" not in st.session_state: st.session_state.ghichu1_input_key = ""
+
+# Khởi tạo keys cho input Bảng 2 (Cải tiến 4)
+if "goi_input" not in st.session_state: st.session_state.goi_input = ""
+if "dutoan_raw" not in st.session_state: st.session_state.dutoan_raw = 0.0
+if "dachi_raw" not in st.session_state: st.session_state.dachi_raw = 0.0
+if "dexuat_raw" not in st.session_state: st.session_state.dexuat_raw = 0.0
+if "ghichu2_input" not in st.session_state: st.session_state.ghichu2_input = ""
+
 
 st.title("📄 PHIẾU ĐỀ NGHỊ THANH TOÁN")
 
@@ -51,33 +163,22 @@ st.markdown("### Bảng 🧾1: Đề nghị thanh toán chi tiết")
 
 col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 2])
 with col1:
-    mota = st.text_input("Mô tả")
+    mota = st.text_input("Mô tả", key="mota_input_key") 
 with col2:
-    donvi = st.text_input("Đơn vị")
+    donvi = st.text_input("Đơn vị", key="donvi_input_key")
 with col3:
-    soluong = st.number_input("Số lượng", min_value=0.0, step=1.0)
+    soluong = st.number_input("Số lượng", min_value=0.0, step=1.0, key="soluong_input_key")
 with col4:
-    dongia_raw = st.text_input("Đơn giá", key="dongia_raw")
+    dongia_raw = st.text_input("Đơn giá", key="dongia_input_key") 
     dongia_formatted = format_currency(dongia_raw)
     st.caption(f"💰 {dongia_formatted if dongia_formatted else ''}")
 with col5:
-    ghichu1 = st.text_input("Ghi chú")
+    ghichu1 = st.text_input("Ghi chú", key="ghichu1_input_key")
 
-if st.button("➕ Thêm dòng vào bảng 1", key="add_row_1"):
-    try:
-        dongia_value = float(str(dongia_raw).replace(",", ""))
-        total = dongia_value * soluong
-        st.session_state.table1.append({
-            "Mô tả": mota,
-            "Đơn vị": donvi,
-            "Số lượng": soluong,
-            "Đơn giá": format_currency(dongia_raw),
-            "Tổng": format_currency(total),
-            "Ghi chú": ghichu1
-        })
-        safe_rerun()
-    except ValueError:
-        st.warning("⚠️ Vui lòng nhập đơn giá hợp lệ (chỉ số).")
+# SỬ DỤNG CALLBACK FUNCTION on_click
+if st.button("➕ Thêm dòng vào bảng 1", key="add_row_1", on_click=add_row_table1_and_reset):
+    # Sau khi callback hoàn thành, rerun để cập nhật giao diện
+    safe_rerun() 
 
 if st.session_state.table1:
     st.markdown("#### 📋 Danh sách chi tiết thanh toán")
@@ -101,8 +202,8 @@ if st.session_state.table1:
             st.session_state.table1.pop(i)
             safe_rerun()
 
-    # Tính tổng cộng
-    total_sum = sum(float(str(r["Tổng"]).replace(",", "")) for r in st.session_state.table1 if r.get("Tổng"))
+    # Tính tổng cộng (Sử dụng giá trị thô)
+    total_sum = sum(r["Tổng_raw"] for r in st.session_state.table1 if r.get("Tổng_raw") is not None)
 
     st.markdown(f"**Tổng cộng:** 💰 {format_currency(total_sum)}")
 
@@ -113,39 +214,26 @@ st.markdown("### Bảng 💰2: Theo dõi thanh toán")
 
 col1, col2, col3, col4, col5 = st.columns([1.5, 1.5, 1.5, 1.5, 2])
 with col1:
-    goi = st.text_input("Gói")
+    goi = st.text_input("Gói", key="goi_input")
 with col2:
-    dutoan_raw = st.text_input("Dự toán (nhập số)", key="dutoan_raw")
-    st.caption(f"💰 {format_currency(dutoan_raw) if dutoan_raw else ''}")
+    # Cải tiến 4: Đổi sang st.number_input
+    dutoan_value = st.number_input("Dự toán", min_value=0.0, step=1000.0, format="%.0f", key="dutoan_raw")
+    st.caption(f"💰 {format_currency(dutoan_value) if dutoan_value else ''}")
 with col3:
-    dachi_raw = st.text_input("Đã chi (nhập số)", key="dachi_raw")
-    st.caption(f"💰 {format_currency(dachi_raw) if dachi_raw else ''}")
+    # Cải tiến 4: Đổi sang st.number_input
+    dachi_value = st.number_input("Đã chi", min_value=0.0, step=1000.0, format="%.0f", key="dachi_raw")
+    st.caption(f"💰 {format_currency(dachi_value) if dachi_value else ''}")
 with col4:
-    dexuat_raw = st.text_input("Đề xuất chi tuần này (nhập số)", key="dexuat_raw")
-    st.caption(f"💰 {format_currency(dexuat_raw) if dexuat_raw else ''}")
+    # Cải tiến 4: Đổi sang st.number_input
+    dexuat_value = st.number_input("Đề xuất chi tuần này", min_value=0.0, step=1000.0, format="%.0f", key="dexuat_raw")
+    st.caption(f"💰 {format_currency(dexuat_value) if dexuat_value else ''}")
 with col5:
-    ghichu2 = st.text_input("Ghi chú (bảng 2)")
+    ghichu2 = st.text_input("Ghi chú (bảng 2)", key="ghichu2_input")
 
-if st.button("➕ Thêm dòng vào bảng 2", key="add_row_2"):
-    try:
-        dutoan_value = float(str(dutoan_raw).replace(",", ""))
-        dachi_value = float(str(dachi_raw).replace(",", ""))
-        dexuat_value = float(str(dexuat_raw).replace(",", ""))
-        
-        # TÍNH TOÁN CỘT "CÒN LẠI"
-        con_lai_value = dutoan_value - dachi_value - dexuat_value
-        
-        st.session_state.table2.append({
-            "Gói": goi,
-            "Dự toán": format_currency(dutoan_raw),
-            "Đã chi": format_currency(dachi_raw),
-            "Đề xuất chi tuần này": format_currency(dexuat_raw),
-            "Còn lại": format_currency(con_lai_value),
-            "Ghi chú": ghichu2
-        })
-        safe_rerun()
-    except ValueError:
-        st.warning("⚠️ Vui lòng nhập đúng định dạng số tiền cho Dự toán/Đã chi/Đề xuất chi.")
+# SỬ DỤNG CALLBACK FUNCTION on_click
+if st.button("➕ Thêm dòng vào bảng 2", key="add_row_2", on_click=add_row_table2_and_reset):
+    # Sau khi callback hoàn thành, rerun để cập nhật giao diện
+    safe_rerun() 
 
 if st.session_state.table2:
     st.markdown("#### 📋 Danh sách theo dõi thanh toán")
@@ -171,23 +259,23 @@ if st.session_state.table2:
             safe_rerun()
 
 # ============================================================
-# PHẦN PHÊ DUYỆT
+# PHẦN PHÊ DUYỆT (ĐÃ GỢI Ý TÊN MẶC ĐỊNH)
 # ============================================================
 st.markdown("### ✍️ Phần phê duyệt")
 
 col1, col2, col3 = st.columns(3)
 with col1:
-    nguoi_lap = st.text_input("Người đề nghị (CTY/DA)")
-    nguoi_kiemtra1 = st.text_input("Người kiểm (CTY/DA)")
+    nguoi_lap = st.text_input("Người đề nghị (CTY/DA)", value="Trần Thị Ngọc Giàu")
+    nguoi_kiemtra1 = st.text_input("Người kiểm (CTY/DA)", value="Nguyễn Ngọc Nghĩa")
 with col2:
-    nguoi_duyet1 = st.text_input("Người duyệt (CTY/DA)")
-    nguoi_kiemtra2 = st.text_input("Người kiểm (HO)")
+    nguoi_duyet1 = st.text_input("Người duyệt (CTY/DA)", value="Nguyễn Duy Lộc")
+    nguoi_kiemtra2 = st.text_input("Người kiểm (HO)", value="Trần Thị Hải Yến")
 with col3:
-    ke_toan = st.text_input("Kế toán trưởng (HO)")
-    giam_doc = st.text_input("Giám đốc phê duyệt (HO)")
+    ke_toan = st.text_input("Kế toán trưởng (HO)", value="Nguyễn Thị Ngọc Mai")
+    giam_doc = st.text_input("Giám đốc phê duyệt (HO)", value="Ngô Hoài Đức")
 
 # ============================================================
-# UPLOAD HÌNH ẢNH (ĐÃ DI CHUYỂN RA SAU PHÊ DUYỆT)
+# UPLOAD HÌNH ẢNH
 # ============================================================
 st.markdown("### 🖼️ Tải lên & Cập nhật Hình ảnh")
 uploaded_files = st.file_uploader(
@@ -200,11 +288,8 @@ if uploaded_files:
     if st.button("⬆️ Cập nhật hình ảnh đã chọn", key="update_images_btn"):
         st.session_state.uploaded_images = [] # Xóa các ảnh cũ
         for uploaded_file in uploaded_files:
-            # Đọc nội dung file
             bytes_data = uploaded_file.read()
-            # Mã hóa base64 để nhúng vào HTML
             base64_encoded_image = base64.b64encode(bytes_data).decode("utf-8")
-            # Lưu vào session state
             st.session_state.uploaded_images.append({
                 "name": uploaded_file.name,
                 "data": base64_encoded_image,
@@ -232,8 +317,9 @@ st.markdown("### 📤 Xuất tài liệu & Xem trước")
 def generate_html():
     """Tạo chuỗi HTML hoàn chỉnh cho phiếu đề nghị thanh toán với CSS được tối ưu hóa cho in ấn."""
     
-    # Bảng 1
-    df1 = pd.DataFrame(st.session_state.table1)
+    # Bảng 1 (Sử dụng dữ liệu không có _raw để xuất HTML)
+    df1_data = [{k: v for k, v in row.items() if k not in ["Đơn giá_raw", "Tổng_raw"]} for row in st.session_state.table1]
+    df1 = pd.DataFrame(df1_data)
     if not df1.empty:
         df1.insert(0, 'Stt', range(1, 1 + len(df1)))
         columns_order_1 = ["Stt", "Mô tả", "Đơn vị", "Số lượng", "Đơn giá", "Tổng", "Ghi chú"]
@@ -241,7 +327,7 @@ def generate_html():
     else:
         df1_html = "<p><i>(Chưa có dữ liệu chi tiết thanh toán)</i></p>"
 
-    # Bảng 2
+    # Bảng 2 (Giữ nguyên)
     df2 = pd.DataFrame(st.session_state.table2)
     if not df2.empty:
         df2.insert(0, 'Stt', range(1, 1 + len(df2)))
@@ -250,7 +336,7 @@ def generate_html():
     else:
         df2_html = "<p><i>(Chưa có dữ liệu theo dõi thanh toán)</i></p>"
     
-    # Tạo phần HTML cho hình ảnh
+    # Tạo phần HTML cho hình ảnh (Giữ nguyên)
     images_html = ""
     if st.session_state.uploaded_images:
         images_html += "<h3>3. Hình ảnh đính kèm</h3>"
@@ -264,8 +350,8 @@ def generate_html():
             """
         images_html += "</div>"
     
-    # Tính Tổng cộng
-    total_sum = sum(float(str(r["Tổng"]).replace(",", "")) for r in st.session_state.table1 if r.get("Tổng"))
+    # Tính Tổng cộng (Sử dụng cột _raw)
+    total_sum = sum(r["Tổng_raw"] for r in st.session_state.table1 if r.get("Tổng_raw") is not None)
     total_sum_formatted = format_currency(total_sum)
     
     html = f"""
@@ -322,8 +408,6 @@ def generate_html():
         /* CSS cho hình ảnh đính kèm */
         .image-gallery {{
             display: grid;
-            /* ĐÃ SỬA: Thay minmax(200px, 1fr) thành minmax(400px, 1fr) */
-            /* Điều này giảm số cột và tăng kích thước tối thiểu/phần trăm cho mỗi hình ảnh */
             grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
             gap: 10px;
             margin-top: 15px;
@@ -336,7 +420,6 @@ def generate_html():
             background-color: #fff;
         }}
         .image-item img {{
-            /* ĐÃ SỬA: Thử tăng max-width lên 200% để vượt qua giới hạn container nếu cần */
             max-width: 200%; 
             height: auto;
             max-height: 600px; 
@@ -464,8 +547,7 @@ with col_pdf_export:
 # RESET APP
 # ============================================================
 st.markdown("---")
-if st.button("🧹 Xóa tất cả dữ liệu", key="reset_app_btn"):
-    st.session_state.table1 = []
-    st.session_state.table2 = []
-    st.session_state.uploaded_images = []
+# SỬ DỤNG CALLBACK FUNCTION on_click
+if st.button("🧹 Xóa tất cả dữ liệu", key="reset_app_btn", on_click=reset_app_data):
+    # Sau khi callback hoàn thành, rerun để cập nhật giao diện
     safe_rerun()
