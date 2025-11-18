@@ -7,41 +7,44 @@ import json
 import base64
 
 # --- CẤU HÌNH GOOGLE SHEETS (Đọc từ Streamlit Secrets) ---
-# Đảm bảo các mục này đã được thiết lập trong st.secrets
 try:
-    # Đọc Sheet ID và Worksheet Name
     SHEET_ID = st.secrets["sheet_id"] 
     WORKSHEET_NAME = st.secrets["worksheet_name"]
-    # Đọc chuỗi Base64
     BASE64_CREDS = st.secrets["base64_service_account"] 
 except Exception:
-    st.error("Lỗi: Không tìm thấy thông tin cấu hình trong Streamlit Secrets (sheet_id, worksheet_name, base64_service_account). Vui lòng kiểm tra Bước 1.")
+    st.error("Lỗi: Không tìm thấy thông tin cấu hình trong Streamlit Secrets (sheet_id, worksheet_name, base64_service_account). Vui lòng kiểm tra file secrets.toml.")
     st.stop()
 
-# Định nghĩa các cột (PHẢI KHỚP VỚI TIÊU ĐỀ TRONG GOOGLE SHEET)
+# Define columns (MUST match the headers in Google Sheet)
 COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú'] 
 
-# --- THIẾT LẬP KẾT NỐI (Giải mã Base64) ---
+# --- THIẾT LẬP KẾT NỐI (Decoding Base64) ---
 try:
-    # 1. Giải mã chuỗi Base64 thành nội dung JSON (bytes)
-    decoded_json_bytes = base64.b64decode(BASE64_CREDS)
-    
-    # 2. Tải nội dung JSON thành Python dictionary
-    # decode('utf-8') để chuyển bytes sang string trước khi tải bằng json.loads
-    CREDS_DICT = json.loads(decoded_json_bytes.decode('utf-8')) 
-    
+    CREDS_DICT = {}
+    try:
+        # 1. Giải mã chuỗi Base64 thành nội dung JSON (bytes)
+        decoded_json_bytes = base64.b64decode(BASE64_CREDS)
+        
+        # 2. Tải nội dung JSON thành Python dictionary
+        CREDS_DICT = json.loads(decoded_json_bytes.decode('utf-8')) 
+    except Exception as base64_error:
+        # Lỗi giải mã Base64 thường do chuỗi bị hỏng hoặc có ký tự thừa
+        st.error(f"LỖI GIẢI MÃ BASE64: Chuỗi Base64 có thể bị lỗi định dạng. Chi tiết lỗi: {base64_error}")
+        st.stop()
+
     # 3. Sử dụng dictionary để xác thực
     CLIENT = gspread.service_account_from_dict(CREDS_DICT)
     
-    # 4. SỬ DỤNG open_by_key để kết nối bằng ID
+    # 4. Use open_by_key to connect using the Sheet ID
     SHEET = CLIENT.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
 
 except Exception as e:
-    st.error(f"Lỗi kết nối Google Sheets. Vui lòng kiểm tra ID Sheet, tên Worksheet '{WORKSHEET_NAME}', quyền truy cập và chuỗi Base64. Chi tiết lỗi: {e}")
+    # Lỗi JWT Signature sẽ rơi vào đây.
+    st.error(f"Lỗi kết nối Google Sheets. Chi tiết lỗi: {e}. Vui lòng kiểm tra:\n1. ID Sheet và Tên Worksheet.\n2. Email dịch vụ đã được chia sẻ quyền EDIT Sheet.\n3. Khóa dịch vụ Base64 được tạo MỚI và dán ĐÚNG định dạng.")
     st.stop()
 
 
-# --- HÀM TẢI VÀ GHI DỮ LIỆU ---
+# --- DATA LOADING AND WRITING FUNCTIONS ---
 
 @st.cache_data(ttl=5) # Cache 5 giây để giảm tải cho API
 def load_data():
@@ -50,17 +53,18 @@ def load_data():
         data = SHEET.get_all_records()
         df = pd.DataFrame(data, columns=COLUMNS)
         
-        # Chuyển đổi sang datetime, lỗi sẽ được xử lý thành NaT (Not a Time)
+        # Convert to datetime, coercing errors to NaT
         df['Thời gian Check in'] = pd.to_datetime(df['Thời gian Check in'], errors='coerce')
         df['Thời gian Check out'] = pd.to_datetime(df['Thời gian Check out'], errors='coerce')
         return df
     except Exception as e:
+        # This typically indicates mismatched column headers
         st.error("Lỗi khi tải dữ liệu. Hãy đảm bảo Hàng 1 của Sheet1 chứa **CHÍNH XÁC** các tiêu đề.")
         return pd.DataFrame(columns=COLUMNS)
 
 def append_check_in_to_sheet(user_email, now):
-    """Ghi dữ liệu Check In mới vào hàng cuối của Sheet."""
-    load_data.clear() # Xóa cache để buộc tải lại dữ liệu mới
+    """Write a new Check In record to the end of the Sheet."""
+    load_data.clear() # Clear cache to force reload after write
     
     current_data = SHEET.get_all_values() 
     new_index = len(current_data) 
@@ -69,28 +73,27 @@ def append_check_in_to_sheet(user_email, now):
     SHEET.append_row(new_row, value_input_option='USER_ENTERED')
 
 def update_check_out_in_sheet(row_index, now, note):
-    """Cập nhật thời gian Check Out và Ghi chú cho hàng đã Check In."""
-    # Index trong Pandas bắt đầu từ 0, nhưng Sheet bắt đầu từ 1 và hàng tiêu đề là hàng 1
+    """Update the Check Out time and Note for an existing Check In record."""
+    # Sheet row is Pandas index + 2
     sheet_row_number = row_index + 2 
     
     load_data.clear() 
     
-    # Cột 4 (Thời gian Check out) và Cột 5 (Ghi chú)
     SHEET.update_cell(sheet_row_number, 4, now.strftime('%Y-%m-%d %H:%M:%S'))
     SHEET.update_cell(sheet_row_number, 5, note)
 
 
-# --- LOGIC ỨNG DỤNG STREAMLIT ---
+# --- STREAMLIT APPLICATION LOGIC ---
 
 st.set_page_config(layout="wide", page_title="Hệ thống Chấm công Google Sheets")
 
 st.title("⏰ Hệ thống Chấm công Google Sheets")
 st.markdown("---")
 
-# Tải dữ liệu ban đầu
+# Load initial data
 data = load_data()
 
-# --- Vùng nhập Email (Giả lập tự động lấy từ Google) ---
+# --- User Email Input ---
 
 user_email = st.text_input(
     "📧 **Email người dùng (Giả lập tự động lấy từ Google)**",
@@ -102,11 +105,11 @@ st.session_state.last_user_email = user_email
     
 st.markdown("---")
 
-# --- Vùng Thao tác và Ghi chú ---
+# --- Action Buttons and Note ---
 col1, col2, col3 = st.columns([1, 1, 3])
 
 with col1:
-    # Nút Check In
+    # Check In Button
     if st.button("🟢 CHECK IN", use_container_width=True):
         
         if not user_email:
@@ -121,7 +124,7 @@ with col1:
         st.rerun() 
 
 with col2:
-    # Nút Check Out
+    # Check Out Button
     if st.button("🔴 CHECK OUT", use_container_width=True):
         
         if not user_email:
@@ -130,14 +133,14 @@ with col2:
             
         current_data = load_data() 
         
-        # Tìm bản ghi Check In chưa có Check Out của người dùng này
+        # Find the last Check In record without a Check Out time for this user
         user_checkins = current_data[
             (current_data['Tên người dùng'] == user_email) & 
             (pd.isna(current_data['Thời gian Check out']))
         ]
         
         if not user_checkins.empty:
-            pandas_index = user_checkins.index[-1] # Lấy index của bản ghi Check In gần nhất
+            pandas_index = user_checkins.index[-1] # Get the index of the most recent Check In
             
             now = datetime.now()
             
@@ -147,7 +150,7 @@ with col2:
             
             st.toast(f"✅ Check Out thành công cho {user_email} lúc: {now.strftime('%H:%M:%S')}", icon="✅")
             
-            # Xóa ghi chú sau khi Check Out
+            # Clear the note after Check Out
             if 'work_note_input_widget' in st.session_state:
                 st.session_state['work_note_input_widget'] = ""
             
@@ -158,7 +161,7 @@ with col2:
 
 
 with col3:
-    # Ô nhập Ghi chú 
+    # Note input field
     note = st.text_input(
         "📝 **Ghi chú Địa điểm làm việc (sẽ được lưu khi Check Out)**", 
         key='work_note_input_widget', 
@@ -167,13 +170,13 @@ with col3:
 
 st.markdown("---")
 
-## 📊 Bảng Dữ liệu Chấm công
+## 📊 Timesheet Data Table
 st.subheader("Bảng dữ liệu Chấm công (Lấy từ Google Sheet)")
 
-# Tải dữ liệu lần cuối để hiển thị
+# Load the final data for display
 display_data = load_data().copy()
 
-# Định dạng lại thời gian cho dễ nhìn
+# Helper function to format datetime objects cleanly
 def format_datetime(dt):
     if pd.isna(dt):
         return ''
@@ -185,3 +188,4 @@ display_data['Thời gian Check out'] = display_data['Thời gian Check out'].ap
 st.dataframe(display_data, use_container_width=True, hide_index=True)
 
 st.markdown("---")
+```eof
