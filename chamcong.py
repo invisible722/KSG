@@ -5,14 +5,13 @@ import gspread
 import os
 
 # --- CẤU HÌNH GOOGLE SHEETS (Đọc từ Streamlit Secrets) ---
-
-# Đảm bảo bạn đã đặt các giá trị này trong secrets.toml hoặc Streamlit Secrets
+# Đảm bảo các mục này đã được thiết lập trong st.secrets
 try:
-    SHEET_NAME = st.secrets["sheet_name"]
+    SHEET_ID = st.secrets["sheet_id"] # SỬ DỤNG SHEET ID
     WORKSHEET_NAME = st.secrets["worksheet_name"]
     CREDS_DICT = st.secrets["gservice_account"]
 except Exception:
-    st.error("Lỗi: Không tìm thấy thông tin xác thực trong Streamlit Secrets. Vui lòng kiểm tra lại Bước 1.")
+    st.error("Lỗi: Không tìm thấy thông tin xác thực trong Streamlit Secrets (sheet_id, worksheet_name, gservice_account). Vui lòng kiểm tra Bước 1.")
     st.stop()
 
 # Định nghĩa các cột (PHẢI KHỚP VỚI TIÊU ĐỀ TRONG GOOGLE SHEET)
@@ -23,11 +22,11 @@ try:
     # Sử dụng service_account_from_dict để đọc trực tiếp từ dict secrets
     CLIENT = gspread.service_account_from_dict(CREDS_DICT)
     
-    # Mở sheet và worksheet
-    SHEET = CLIENT.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
+    # SỬ DỤNG open_by_key để kết nối bằng ID, đáng tin cậy hơn open(name)
+    SHEET = CLIENT.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
 
 except Exception as e:
-    st.error(f"Lỗi kết nối Google Sheets. Vui lòng kiểm tra tên sheet '{SHEET_NAME}', quyền truy cập (chia sẻ email dịch vụ) và file xác thực trong Streamlit Secrets. Chi tiết lỗi: {e}")
+    st.error(f"Lỗi kết nối Google Sheets. Vui lòng kiểm tra ID Sheet, tên Worksheet '{WORKSHEET_NAME}', quyền truy cập (chia sẻ email dịch vụ) và file xác thực. Chi tiết lỗi: {e}")
     st.stop()
 
 
