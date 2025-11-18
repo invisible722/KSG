@@ -22,7 +22,7 @@ try:
     # Sử dụng service_account_from_dict để đọc trực tiếp từ dict secrets
     CLIENT = gspread.service_account_from_dict(CREDS_DICT)
     
-    # SỬ DỤNG open_by_key để kết nối bằng ID, đáng tin cậy hơn open(name)
+    # SỬ DỤNG open_by_key để kết nối bằng ID
     SHEET = CLIENT.open_by_key(SHEET_ID).worksheet(WORKSHEET_NAME)
 
 except Exception as e:
@@ -43,6 +43,7 @@ def load_data():
         df['Thời gian Check out'] = pd.to_datetime(df['Thời gian Check out'], errors='coerce')
         return df
     except Exception as e:
+        # Lỗi này thường là do tiêu đề cột sai hoặc dữ liệu không hợp lệ
         st.error("Lỗi khi tải dữ liệu. Hãy đảm bảo Hàng 1 của Sheet1 chứa **CHÍNH XÁC** các tiêu đề: Số thứ tự, Tên người dùng, Thời gian Check in, Thời gian Check out, Ghi chú.")
         return pd.DataFrame(columns=COLUMNS)
 
