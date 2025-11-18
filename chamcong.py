@@ -2,34 +2,32 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import os
 
-# --- CẤU HÌNH GOOGLE SHEETS ---
-SERVICE_ACCOUNT_FILE = 'service_account.json'
+# --- CẤU HÌNH GOOGLE SHEETS (Đọc từ Streamlit Secrets) ---
 
-# ĐÃ CẬP NHẬT THEO YÊU CẦU CỦA BẠN
-SHEET_NAME = "TTS-Chamcong" 
-WORKSHEET_NAME = "Sheet1" 
+# Đảm bảo bạn đã đặt các giá trị này trong secrets.toml hoặc Streamlit Secrets
+try:
+    SHEET_NAME = st.secrets["sheet_name"]
+    WORKSHEET_NAME = st.secrets["worksheet_name"]
+    CREDS_DICT = st.secrets["gservice_account"]
+except Exception:
+    st.error("Lỗi: Không tìm thấy thông tin xác thực trong Streamlit Secrets. Vui lòng kiểm tra lại Bước 1.")
+    st.stop()
 
 # Định nghĩa các cột (PHẢI KHỚP VỚI TIÊU ĐỀ TRONG GOOGLE SHEET)
 COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú'] 
 
 # --- THIẾT LẬP KẾT NỐI ---
 try:
-    if not os.path.exists(SERVICE_ACCOUNT_FILE):
-        st.error(f"Lỗi: Không tìm thấy file xác thực '{SERVICE_ACCOUNT_FILE}'. Vui lòng làm theo hướng dẫn Google Cloud.")
-        st.stop()
-        
-    SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    CREDS = ServiceAccountCredentials.from_json_keyfile_name(SERVICE_ACCOUNT_FILE, SCOPE) 
-    CLIENT = gspread.authorize(CREDS)
+    # Sử dụng service_account_from_dict để đọc trực tiếp từ dict secrets
+    CLIENT = gspread.service_account_from_dict(CREDS_DICT)
     
     # Mở sheet và worksheet
     SHEET = CLIENT.open(SHEET_NAME).worksheet(WORKSHEET_NAME)
 
 except Exception as e:
-    st.error(f"Lỗi kết nối Google Sheets. Vui lòng kiểm tra tên sheet '{SHEET_NAME}', quyền truy cập (chia sẻ email dịch vụ) và file xác thực. Chi tiết lỗi: {e}")
+    st.error(f"Lỗi kết nối Google Sheets. Vui lòng kiểm tra tên sheet '{SHEET_NAME}', quyền truy cập (chia sẻ email dịch vụ) và file xác thực trong Streamlit Secrets. Chi tiết lỗi: {e}")
     st.stop()
 
 
@@ -39,16 +37,13 @@ except Exception as e:
 def load_data():
     """Tải dữ liệu từ Google Sheet."""
     try:
-        # Lấy tất cả bản ghi. get_all_records sử dụng Hàng 1 làm tiêu đề.
         data = SHEET.get_all_records()
         df = pd.DataFrame(data, columns=COLUMNS)
         
-        # Ép kiểu datetime cho các cột liên quan
         df['Thời gian Check in'] = pd.to_datetime(df['Thời gian Check in'], errors='coerce')
         df['Thời gian Check out'] = pd.to_datetime(df['Thời gian Check out'], errors='coerce')
         return df
     except Exception as e:
-        # Nếu lỗi là <Response [200]>, nó thường là lỗi không tìm thấy tiêu đề hoặc định dạng dữ liệu sai.
         st.error("Lỗi khi tải dữ liệu. Hãy đảm bảo Hàng 1 của Sheet1 chứa **CHÍNH XÁC** các tiêu đề: Số thứ tự, Tên người dùng, Thời gian Check in, Thời gian Check out, Ghi chú.")
         return pd.DataFrame(columns=COLUMNS)
 
@@ -64,7 +59,6 @@ def append_check_in_to_sheet(user_email, now):
 
 def update_check_out_in_sheet(row_index, now, note):
     """Cập nhật thời gian Check Out và Ghi chú cho hàng đã Check In."""
-    # sheet_row_number = index Pandas (0-based) + 2 (vì có hàng tiêu đề và Pandas index bắt đầu từ 0)
     sheet_row_number = row_index + 2
     
     load_data.clear() 
@@ -124,7 +118,6 @@ with col2:
             
         current_data = load_data() 
         
-        # Lọc các bản ghi Check In của người dùng hiện tại chưa có Check Out
         user_checkins = current_data[
             (current_data['Tên người dùng'] == user_email) & 
             (pd.isna(current_data['Thời gian Check out']))
