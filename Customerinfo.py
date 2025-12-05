@@ -5,18 +5,59 @@ from gspread.exceptions import APIError, WorksheetNotFound, SpreadsheetNotFound
 from datetime import datetime
 import json
 import time
+import urllib.request # Thêm import cho Webhook
+import urllib.error   # Thêm import cho Webhook
 
-# --- CẤU HÌNH TRANG VÀ CACHE ---
-# 1. Điều chỉnh tự co dãn cho full màn hình
+# --- CẤU HÌNH WEBHOOK TEAMS (Được tham khảo từ sendmsteams.py) ---
+WEBHOOK_URL = (
+    "https://defaulte1ac1481727f4eabbc6e93a51f4a79.16.environment.api.powerplatform.com:443/"
+    "powerautomate/automations/direct/workflows/13f35ec749ac4ffc9e45703c8cdfb325/triggers/manual/paths/invoke"
+    "?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=oU1G-QWi8zl9CbCaNKwtkglylwYi1qlTNaDxc2HNfGI"
+)
+TIMEOUT_SEC = 30 
+
+
+def as_attachments(card: dict) -> dict:
+    """Bao card thành payload dạng message + attachments cho Power Automate."""
+    return {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "contentUrl": None,
+                "content": card,
+            }
+        ],
+    }
+
+
+def post_json(url: str, payload: dict, timeout: int = TIMEOUT_SEC):
+    """Gửi POST JSON bằng urllib.request."""
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        url=url,
+        data=data,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode("utf-8", errors="ignore")
+            return resp.status, body
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="ignore")
+        return e.code, body
+    except Exception as e:
+        return 500, f"Không gọi được webhook: {e}"
+# ---------------------------------------------------------------------
+
+# --- CẤU HÌNH TRANG VÀ SESSION STATE ---
 st.set_page_config(layout="wide") 
 
-# Khởi tạo hoặc cập nhật trạng thái session để reset form
 if 'form_key' not in st.session_state:
     st.session_state['form_key'] = 0
 
-# Giả sử bạn đã lưu nội dung file service account JSON vào st.secrets["gcp_service_account"]
 try:
-    # Lấy thông tin xác thực từ Streamlit Secrets
     service_account_info = st.secrets["gcp_service_account"]
 except KeyError:
     st.error("Lỗi: Không tìm thấy thông tin xác thực Google Service Account. Vui lòng kiểm tra file secrets.toml.")
@@ -24,17 +65,10 @@ except KeyError:
 
 
 def connect_to_gsheet(spreadsheet_name, worksheet_name):
-    """
-    Thiết lập kết nối với Google Sheet bằng gspread.
-    """
+    """Thiết lập kết nối với Google Sheet bằng gspread."""
     try:
-        # Xác thực bằng service account JSON
         gc = gspread.service_account_from_dict(service_account_info)
-        
-        # Mở Spreadsheet
         spreadsheet = gc.open(spreadsheet_name)
-        
-        # Mở Worksheet
         worksheet = spreadsheet.worksheet(worksheet_name)
         return worksheet
         
@@ -45,21 +79,16 @@ def connect_to_gsheet(spreadsheet_name, worksheet_name):
         st.error(f"⚠️ Lỗi: Không tìm thấy Sheet (tab) có tên '{worksheet_name}' trong file. Vui lòng kiểm tra lại tên tab.")
         return None
     except Exception as e:
-        # Lỗi chung (bao gồm cả Response 200 do Permission Denied)
         st.error(f"⚠️ Lỗi kết nối Google Sheet: {e}")
         return None
 
 
-# --- ĐỊNH NGHĨA HÀM load_data ---
-
-@st.cache_data(ttl=60) # Tải lại dữ liệu sau mỗi 60 giây
+# --- ĐỊNH NGHĨA HÀM load_data (ĐÃ BỎ CACHE) ---
 def load_data(sheet_name, worksheet_name):
     ws = connect_to_gsheet(sheet_name, worksheet_name)
     if ws:
-        # Lấy tất cả dữ liệu từ Sheet (bao gồm cả header)
         data = ws.get_all_values()
         if len(data) > 1:
-             # Chuyển đổi thành DataFrame (bỏ hàng header đầu tiên)
             df = pd.DataFrame(data[1:], columns=data[0])
             return df
     return pd.DataFrame()
@@ -76,7 +105,6 @@ st.markdown("---")
 # 1. Nhập dữ liệu người đặt hàng dịch vụ
 st.header("1. Nhập Thông Tin Đặt Hàng Mới")
 
-# Sử dụng st.session_state['form_key'] để reset form
 with st.form(key=f'order_form_{st.session_state["form_key"]}'):
     
     col1, col2 = st.columns(2)
@@ -99,18 +127,14 @@ with st.form(key=f'order_form_{st.session_state["form_key"]}'):
     with col2:
         address = st.text_area("📍 **Địa Chỉ Cần Sửa Chữa**", max_chars=200, height=200)
 
-    # Nút submit nằm ngoài cột để dễ quản lý
     submit_button = st.form_submit_button(label='Lưu Đơn Hàng')
 
-# Khởi tạo biến worksheet để có thể kiểm tra ở phần load_data
 worksheet = None 
 
 if submit_button:
-    # Kiểm tra dữ liệu bắt buộc
     if not all([customer_name, phone_number, address, service_request]):
         st.error("Vui lòng điền đầy đủ tất cả các trường thông tin.")
     else:
-        # 2. Lưu dữ liệu vào Google Sheet
         worksheet = connect_to_gsheet(
             spreadsheet_name=SPREADSHEET_NAME,
             worksheet_name=WORKSHEET_NAME
@@ -118,33 +142,27 @@ if submit_button:
 
         if worksheet:
             try:
-                # Lấy tất cả dữ liệu hiện có (bao gồm header) để tính Số thứ tự
                 existing_data = worksheet.get_all_values()
                 next_order_id = len(existing_data)
                 
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-                # Chuẩn bị dữ liệu để lưu theo thứ tự 7 cột (Đã thêm Tình trạng):
                 new_order_data = [
-                    next_order_id,     # Số thứ tự
-                    timestamp,         # Thời Gian
-                    customer_name,     # Tên Khách Hàng
-                    phone_number,      # Số Điện Thoại
-                    address,           # Địa Chỉ
-                    service_request,   # Yêu Cầu Dịch Vụ
-                    "Mới"              # Tình trạng (Giá trị mặc định)
+                    next_order_id,     
+                    timestamp,         
+                    customer_name,     
+                    phone_number,      
+                    address,           
+                    service_request,   
+                    "Mới"              
                 ]
 
-                # Thêm một hàng dữ liệu mới vào Sheet
                 worksheet.append_row(new_order_data)
                 st.success("✅ **Lưu đơn hàng thành công!**")
                 st.balloons()
                 
-                # --- THAO TÁC RESET FORM ---
-                load_data.clear() 
                 st.session_state['form_key'] += 1
-                st.rerun() 
-                # -------------------------
+                st.rerun()
                 
             except APIError as e:
                 st.error(f"⚠️ Lỗi GHI DỮ LIỆU vào Google Sheet (API Error): {e}")
@@ -156,16 +174,14 @@ st.markdown("---")
 ## 2. Danh Sách Đơn Hàng và Cập Nhật Tình Trạng
 st.header("2. Danh Sách Đơn Hàng")
 
-# Tải và hiển thị dữ liệu
 data_load_state = st.text('Đang tải dữ liệu...')
 df = load_data(SPREADSHEET_NAME, WORKSHEET_NAME)
 data_load_state.text('Đã tải dữ liệu thành công!')
 
 if not df.empty:
     
-    # --- 1. Chuẩn bị DataFrame cho st.data_editor ---
+    # --- 1. Chuẩn bị DataFrame cho st.data_editor và JSON ---
     
-    # Tạo bản sao DataFrame và đặt 'Số thứ tự' làm index để theo dõi thay đổi
     df_edit = df.copy() 
     try:
         df_edit['Số thứ tự'] = pd.to_numeric(df_edit['Số thứ tự'], errors='coerce', downcast='integer')
@@ -173,17 +189,15 @@ if not df.empty:
     except Exception as e:
         st.warning(f"Không thể đặt 'Số thứ tự' làm chỉ mục: {e}. Vui lòng đảm bảo cột này không có giá trị trống.")
 
-    # Đổi tên cột để hiển thị tiếng Việt thân thiện hơn
     df_edit.rename(columns={
         'Tên Khách Hàng': 'Tên khách', 
         'Số Điện Thoại': 'Số điện thoại', 
         'Thời Gian': 'Ngày tạo',
         'Địa Chỉ': 'Địa chỉ',
         'Yêu Cầu Dịch Vụ': 'Yêu cầu dịch vụ',
-        'Tình trạng': 'Tình trạng' # Giữ nguyên tên này cho việc update gsheet
+        'Tình trạng': 'Tình trạng'
     }, inplace=True)
 
-    # Định nghĩa lại thứ tự và tập hợp các cột hiển thị
     display_columns = [
         'Ngày tạo', 
         'Tên khách', 
@@ -194,28 +208,137 @@ if not df.empty:
     ]
     df_display = df_edit[[col for col in display_columns if col in df_edit.columns]]
 
-    # --- 2. Thêm Nút Xuất JSON ---
-    def to_json(df):
-        # Chuyển DataFrame sang dạng record JSON (list of dicts)
-        return df.to_json(orient="records", force_ascii=False, indent=4)
+    # --- 2. HÀM TẠO ADAPTIVE CARD JSON ---
+    
+    def generate_adaptive_card_json(df):
+        """
+        Nhóm DataFrame theo 'Tình trạng' và tạo Adaptive Card JSON theo cấu trúc mẫu.
+        """
+        df_json = df.reset_index().rename(columns={
+             'Số thứ tự': 'ID',
+             'Ngày tạo': 'Thời gian tạo',
+             'Tên khách': 'Tên Khách Hàng',
+             'Số điện thoại': 'Số Điện Thoại',
+             'Địa chỉ': 'Địa Chỉ',
+             'Yêu cầu dịch vụ': 'Yêu Cầu Dịch Vụ',
+             'Tình trạng': 'Tình trạng'
+        })
+        
+        df_json = df_json[['ID', 'Tên Khách Hàng', 'Yêu Cầu Dịch Vụ', 'Địa Chỉ', 'Số Điện Thoại', 'Thời gian tạo', 'Tình trạng']]
 
-    json_string = to_json(df_display.reset_index()) # Đưa Số thứ tự về cột thường khi xuất
+        total_orders = len(df_json)
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        adaptive_card_template = {
+            "type": "AdaptiveCard",
+            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+            "version": "1.0",
+            "body": [
+                # Header
+                {
+                    "type": "ColumnSet",
+                    "columns": [
+                        {"type": "Column", "width": 3, "items": [
+                            {"type": "TextBlock", "size": "Large", "weight": "Bolder", "text": "Đơn hàng BeniHome"},
+                            {"type": "TextBlock", "isSubtle": True, "spacing": "None", "text": f"Cập nhật: {current_time}"}
+                        ]},
+                        {"type": "Column", "width": "auto", "items": [
+                            {"type": "Image", "url": "https://benihome.com.vn/wp-content/uploads/2018/08/logo.png", "size": "Medium", "altText": "BeniHome"}
+                        ], "horizontalAlignment": "Right"}
+                    ]
+                },
+                # Total
+                {"type": "TextBlock", "text": f"Tổng: {total_orders} đơn", "weight": "Bolder", "spacing": "Small"}
+            ],
+            "actions": [
+                {"type": "Action.OpenUrl", "title": "Mở bảng Excel", "url": "https://docs.google.com/spreadsheets/d/1uRtOnKX29zge_KjHmajNppWUGnqB3YStA1nh_J356Jo/edit?gid=0#gid=0"}
+            ]
+        }
 
-    st.download_button(
-        label="⬇️ Xuất Dữ Liệu sang JSON",
-        data=json_string,
-        file_name=f'don_hang_benihome_{datetime.now().strftime("%Y%m%d_%H%M%S")}.json',
-        mime='application/json',
-        help="Tải toàn bộ danh sách đơn hàng hiện tại dưới dạng tệp JSON."
-    )
+        grouped = df_json.groupby('Tình trạng')
+        
+        for status, group in grouped:
+            order_list_container = {"type": "Container", "items": []}
+            
+            for index, row in group.iterrows():
+                order_string = f"#{row['ID']} • {row['Tên Khách Hàng']} • {row['Yêu Cầu Dịch Vụ']} • {row['Địa Chỉ']} • {row['Số Điện Thoại']} • {row['Thời gian tạo']}"
+                
+                order_list_container["items"].append({
+                    "type": "TextBlock",
+                    "text": order_string,
+                    "wrap": True,
+                    "spacing": "Small"
+                })
+
+            status_container = {
+                "type": "Container",
+                "items": [
+                    {"type": "TextBlock", "text": f"{status} ({len(group)})", "weight": "Bolder", "size": "Medium", "spacing": "Medium"},
+                    order_list_container
+                ]
+            }
+            
+            adaptive_card_template["body"].append(status_container)
+            
+        return json.dumps(adaptive_card_template, ensure_ascii=False, indent=4)
+
+    # Hàm wrapper để Streamlit gọi khi tạo tệp tải xuống
+    def get_adaptive_card_data():
+        return generate_adaptive_card_json(df_display)
+
+    # --- 3. HÀM GỬI LÊN TEAMS (Callback cho nút) ---
+    def send_to_teams_callback():
+        json_string = get_adaptive_card_data()
+        
+        try:
+            card = json.loads(json_string)
+            
+            # 1. Bao thành attachments
+            wrapped = as_attachments(card)
+
+            # 2. Gửi lên webhook
+            st.toast("Đang gửi báo cáo Adaptive Card lên MS Teams...")
+            status, body = post_json(WEBHOOK_URL, wrapped)
+            
+            # 3. Xử lý phản hồi
+            if status in (200, 202):
+                st.success(f"✅ Đã gửi báo cáo đơn hàng thành công lên MS Teams! (Status: {status})")
+            else:
+                st.error(f"❌ Lỗi khi gửi lên MS Teams (Status: {status}). Vui lòng kiểm tra Flow Power Automate.")
+                st.code(f"Phản hồi: {body[:500]}", language='text') # Hiện 500 ký tự đầu của body
+                
+        except json.JSONDecodeError:
+            st.error("Lỗi: Dữ liệu JSON tạo ra không hợp lệ.")
+        except Exception as e:
+            st.error(f"Lỗi không xác định trong quá trình gửi: {e}")
+
+    # --- 4. CÁC NÚT HÀNH ĐỘNG ---
+    col_download, col_send = st.columns([0.25, 0.75])
+
+    with col_download:
+        st.download_button(
+            label="⬇️ Xuất Dữ Liệu Adaptive Card JSON",
+            data=get_adaptive_card_data(), 
+            file_name='adaptive_card_don_hang_benihome.json', 
+            mime='application/json',
+            help="Tải toàn bộ danh sách đơn hàng hiện tại dưới dạng Adaptive Card JSON."
+        )
+
+    with col_send:
+        # Nút mới: Gửi lên MS Teams
+        st.button(
+            label="📤 Gửi Báo Cáo lên MS Teams",
+            on_click=send_to_teams_callback,
+            help="Tạo Adaptive Card JSON mới nhất và gửi đến Power Automate Flow (MS Teams)."
+        )
+    # -----------------------------
 
     st.caption("💡 **Nhấn đúp chuột vào cột 'Tình trạng' để thay đổi trạng thái.**")
-
-    # --- 3. Hiển thị bảng có thể chỉnh sửa (data_editor) ---
+    
+    # --- 5. Hiển thị bảng có thể chỉnh sửa (data_editor) ---
     edited_df = st.data_editor(
         df_display,
         key="data_editor",
-        # Cấu hình cột 'Tình trạng' thành Selectbox (Dropdown)
         column_config={
             "Tình trạng": st.column_config.SelectboxColumn(
                 "Tình trạng",
@@ -225,14 +348,12 @@ if not df.empty:
                 required=True,
             ),
         },
-        # Chỉ cho phép chỉnh sửa cột 'Tình trạng'
         disabled=df_display.columns.difference(['Tình trạng']), 
         width='stretch'
     )
     
-    # --- 4. Logic Ghi lại thay đổi vào Google Sheet ---
+    # --- 6. Logic Ghi lại thay đổi vào Google Sheet ---
     
-    # Kiểm tra xem có hàng nào được chỉnh sửa không
     if st.session_state["data_editor"]["edited_rows"]:
         with st.spinner("🔄 Đang cập nhật trạng thái đơn hàng..."):
             
@@ -240,7 +361,6 @@ if not df.empty:
             if worksheet:
                 changes = st.session_state["data_editor"]["edited_rows"]
                 
-                # Lấy toàn bộ dữ liệu (bao gồm header) từ Sheet để tìm đúng số hàng
                 all_records = worksheet.get_all_values()
                 header = all_records[0]
                 
@@ -251,7 +371,6 @@ if not df.empty:
                     st.error("Lỗi: Không tìm thấy cột 'Tình trạng' hoặc 'Số thứ tự' trong Google Sheet. Vui lòng kiểm tra tiêu đề cột.")
                     st.stop()
                 
-
                 updated_successfully = False
                 
                 for index, updated_data in changes.items():
@@ -259,17 +378,13 @@ if not df.empty:
                     new_status = updated_data.get("Tình trạng")
                     
                     if new_status:
-                        # Tìm số hàng (row number) trong Google Sheet dựa trên 'Số thứ tự'
                         gsheet_row_number = -1
                         for i, row in enumerate(all_records):
-                            # So sánh giá trị cột 'Số thứ tự' trong sheet (row[id_col_index - 1]) với order_id
                             if str(row[id_col_index - 1]) == str(order_id): 
-                                # gsheet_row_number là số hàng (1-based)
                                 gsheet_row_number = i + 1 
                                 break
                         
-                        if gsheet_row_number > 1: # Đảm bảo không ghi đè lên hàng header
-                            # Cập nhật ô cụ thể (Hàng: gsheet_row_number, Cột: status_col_index)
+                        if gsheet_row_number > 1:
                             try:
                                 worksheet.update_cell(gsheet_row_number, status_col_index, new_status)
                                 updated_successfully = True
@@ -278,7 +393,6 @@ if not df.empty:
                                 st.error(f"Lỗi khi cập nhật ID {order_id}: {e}")
                         
         if updated_successfully:
-            load_data.clear()
             st.session_state["data_editor"]["edited_rows"] = {}
             st.rerun() 
 
