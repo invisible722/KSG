@@ -93,7 +93,7 @@ st.set_page_config(layout="wide", page_title="Hệ thống Chấm công")
 st.title("⏰ Hệ thống Chấm công")
 
 # Xử lý Email đầu vào
-raw_email = st.text_input("📧 Email người dùng", value=st.session_state.get('last_user_email', ''), placeholder="Nhập email của bạn (vd: ten.nguoi.dung@gmail.com)")
+raw_email = st.text_input("📧 Email người dùng", value=st.session_state.get('last_user_email', ''), placeholder="Nhập email hoặc Tên của bạn (vd: user@gmail.com hoặc Nguyễn Văn A)-Lưu ý tên Check in và Check out phải nhập giống nhau")
 user_email = raw_email.strip() # Loại bỏ khoảng trắng thừa
 st.session_state.last_user_email = user_email
 
@@ -146,5 +146,6 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
