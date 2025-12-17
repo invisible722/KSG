@@ -43,13 +43,13 @@ def load_data():
         return pd.DataFrame(columns=COLUMNS)
 
 def find_next_available_row():
-    # Đếm dòng dựa trên cột B (Email) để tránh ghi đè lên dòng tiêu đề hoặc dòng cũ
+    # Lấy cột B, lọc bỏ các ô thực sự rỗng
     col_b_values = list(filter(None, SHEET.col_values(2))) 
     return len(col_b_values) + 1
 
 def append_check_in_to_sheet(user_email, now):
-    # LỚP BẢO VỆ CUỐI CÙNG: Nếu email vẫn trống thì thoát hàm ngay lập tức
-    if not user_email or str(user_email).strip() == "":
+    # Bảo vệ cấp hàm: Tuyệt đối không ghi nếu email trống
+    if not user_email or not str(user_email).strip():
         return False
 
     load_data.clear()
@@ -64,7 +64,7 @@ def append_check_in_to_sheet(user_email, now):
     return True
 
 def update_check_out_in_sheet(user_email, now, note):
-    if not user_email or str(user_email).strip() == "":
+    if not user_email or not str(user_email).strip():
         return False
 
     load_data.clear()
@@ -72,9 +72,10 @@ def update_check_out_in_sheet(user_email, now, note):
     checkouts = SHEET.col_values(4)
     
     target_row = -1
+    clean_email = user_email.strip()
     for i in range(len(emails) - 1, 0, -1):
-        if emails[i] == user_email.strip():
-            if i >= len(checkouts) or checkouts[i] == "" or checkouts[i] is None:
+        if emails[i] == clean_email:
+            if i >= len(checkouts) or not checkouts[i]:
                 target_row = i + 1
                 break
     
@@ -93,33 +94,36 @@ st.title("⏰ Hệ thống Chấm công Google Sheets")
 user_email = st.text_input("📧 Email người dùng", value=st.session_state.get('last_user_email', ''), placeholder="Nhập email...")
 st.session_state.last_user_email = user_email
 
+# --- CẢNH BÁO VÀ CHẶN THỰC THI (QUAN TRỌNG) ---
+# Nếu người dùng nhấn nút mà email trống, st.stop() sẽ ngăn chặn mọi việc ghi dữ liệu bên dưới.
+email_is_empty = not user_email or not user_email.strip()
+
+st.markdown("---")
 col1, col2, col3 = st.columns([1, 1, 3])
 
 with col1:
     if st.button("🟢 CHECK IN", use_container_width=True):
-        # Kiểm tra dữ liệu đầu vào: KHÔNG cho phép để trống hoặc chỉ có dấu cách
-        if user_email and user_email.strip() != "":
-            success = append_check_in_to_sheet(user_email, datetime.now())
-            if success:
-                st.toast("Check In thành công!")
-                st.rerun()
-            else:
-                st.error("Lỗi dữ liệu: Email không hợp lệ.")
-        else:
-            st.error("❗ Vui lòng nhập Email trước khi Check In.")
+        if email_is_empty:
+            st.error("❗ LỖI: Bạn chưa nhập Email. Hệ thống đã chặn việc ghi dòng trống.")
+            st.stop() # Dừng ngay lập tức, không chạy hàm append bên dưới
+        
+        if append_check_in_to_sheet(user_email, datetime.now()):
+            st.toast("Check In thành công!")
+            st.rerun()
 
 with col2:
     if st.button("🔴 CHECK OUT", use_container_width=True):
-        if user_email and user_email.strip() != "":
-            note_val = st.session_state.get('work_note_input_widget', '')
-            if update_check_out_in_sheet(user_email, datetime.now(), note_val):
-                st.toast("Check Out thành công!")
-                st.session_state['work_note_input_widget'] = ""
-                st.rerun()
-            else:
-                st.error("Không tìm thấy dòng Check In chưa đóng của bạn!")
+        if email_is_empty:
+            st.error("❗ LỖI: Bạn chưa nhập Email.")
+            st.stop()
+            
+        note_val = st.session_state.get('work_note_input_widget', '')
+        if update_check_out_in_sheet(user_email, datetime.now(), note_val):
+            st.toast("Check Out thành công!")
+            st.session_state['work_note_input_widget'] = ""
+            st.rerun()
         else:
-            st.error("❗ Vui lòng nhập Email trước khi Check Out.")
+            st.error("Không tìm thấy dòng Check In chưa đóng của bạn!")
 
 with col3:
     st.text_input("📝 Ghi chú", key='work_note_input_widget')
