@@ -125,7 +125,20 @@ with col2:
                 st.error("Không tìm thấy phiên Check In chưa đóng.")
 
 with col3:
-    st.text_input("📝 Ghi chú", key='work_note_input_widget')
+
+    # Note input field
+
+    note = st.text_input(
+
+        "📝 **Ghi chú Địa điểm làm việc (sẽ được lưu khi Check Out)**", 
+
+        key='work_note_input_widget', 
+
+        placeholder="VD: Làm việc tại văn phòng/remote"
+
+    )
+
+
 
 st.markdown("---")
 df_display = load_data()
@@ -133,3 +146,4 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
