@@ -3,11 +3,12 @@ import pandas as pd
 import gspread
 import json
 import base64
+from datetime import datetime
 
 # --- CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Admin - Quản lý Chấm công")
 
-# --- KẾT NỐI GOOGLE SHEETS (Dùng chung cấu hình với App nhân viên) ---
+# --- KẾT NỐI GOOGLE SHEETS ---
 try:
     SHEET_ID = st.secrets["sheet_id"] 
     WORKSHEET_NAME = st.secrets["worksheet_name"]
@@ -21,7 +22,8 @@ except Exception as e:
     st.error(f"Lỗi cấu hình/kết nối: {e}")
     st.stop()
 
-COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng']
+# Định nghĩa các cột (Thêm cột Người duyệt)
+COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng', 'Người duyệt']
 
 # --- FUNCTIONS ---
 
@@ -30,84 +32,81 @@ def load_data():
         all_values = SHEET.get_all_values()
         if len(all_values) <= 1:
             return pd.DataFrame(columns=COLUMNS)
-        # Lấy dữ liệu và đảm bảo đủ số cột (6 cột)
-        df = pd.DataFrame(all_values[1:], columns=COLUMNS)
+        # Đảm bảo dataframe luôn có đủ số cột định nghĩa
+        df = pd.DataFrame(all_values[1:], columns=COLUMNS[:len(all_values[0])])
+        for col in COLUMNS:
+            if col not in df.columns:
+                df[col] = ""
         return df
     except Exception as e:
-        st.error(f"Lỗi tải dữ liệu: {e}")
         return pd.DataFrame(columns=COLUMNS)
 
-def approve_entry(row_index):
+def approve_entry(row_index, admin_email):
     try:
-        # Cột 'Tình trạng' là cột thứ 6 (F)
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        # Cập nhật cột F (6): Tình trạng
         SHEET.update_cell(row_index, 6, "Đã duyệt ✅")
+        # Cập nhật cột G (7): Người duyệt (Email + Thời gian)
+        info_admin = f"{admin_email} ({now})"
+        SHEET.update_cell(row_index, 7, info_admin)
         return True
     except:
         return False
 
-def delete_entry(row_index):
-    try:
-        SHEET.delete_rows(row_index)
-        return True
-    except:
-        return False
+# --- GIAO DIỆN ĐĂNG NHẬP ---
 
-# --- GIAO DIỆN ADMIN ---
+if 'admin_logged_in' not in st.session_state:
+    st.session_state.admin_logged_in = False
 
-st.title("🔑 Trang Quản trị Chấm công")
-st.info("Hệ thống phê duyệt các lượt Check-in/Check-out của nhân viên.")
+if not st.session_state.admin_logged_in:
+    st.title("🔐 Đăng nhập Quản trị")
+    with st.form("login_form"):
+        admin_user = st.text_input("Email quản trị (Gmail)", placeholder="example@gmail.com")
+        admin_pass = st.text_input("Mật khẩu truy cập hệ thống", type="password")
+        submit = st.form_submit_button("Đăng nhập")
+        
+        if submit:
+            # Lưu ý: Đây là kiểm tra đơn giản. 
+            # Bạn có thể thay đổi admin_user/admin_pass theo ý muốn
+            if "@gmail.com" in admin_user and admin_pass == "admin123": 
+                st.session_state.admin_logged_in = True
+                st.session_state.admin_email = admin_user
+                st.rerun()
+            else:
+                st.error("Email không hợp lệ hoặc sai mật khẩu!")
+    st.stop() # Dừng lại không cho xem nội dung bên dưới nếu chưa login
 
-# Tạo bộ lọc nhanh
+# --- GIAO DIỆN SAU KHI ĐĂNG NHẬP ---
+
+st.sidebar.write(f"👤 Admin: **{st.session_state.admin_email}**")
+if st.sidebar.button("Đăng xuất"):
+    st.session_state.admin_logged_in = False
+    st.rerun()
+
+st.title("🔑 Hệ thống Phê duyệt Chấm công")
+
 df = load_data()
 
-# Tabs chức năng
 tab_pending, tab_history = st.tabs(["⏳ Chờ phê duyệt", "📜 Toàn bộ lịch sử"])
 
 with tab_pending:
-    # Lọc các dòng có trạng thái 'Chờ duyệt'
     pending_df = df[df['Tình trạng'] == "Chờ duyệt"]
     
     if pending_df.empty:
         st.success("Không có yêu cầu nào cần xử lý.")
     else:
         for index, row in pending_df.iterrows():
-            # index + 2 vì: index 0 của DF là dòng 2 trong Google Sheets
             real_row_index = index + 2
             
-            with st.expander(f"Yêu cầu từ: {row['Tên người dùng']} ({row['Thời gian Check in']})"):
-                col1, col2, col3 = st.columns(3)
-                col1.write(f"**Ghi chú:** {row['Ghi chú'] or 'Không có'}")
-                col2.write(f"**Trạng thái hiện tại:** {row['Tình trạng']}")
+            with st.expander(f"Yêu cầu từ: {row['Tên người dùng']}"):
+                col1, col2 = st.columns([3, 1])
+                col1.write(f"**Thời gian:** {row['Thời gian Check in']}")
+                col1.write(f"**Ghi chú:** {row['Ghi chú']}")
                 
-                # Nút bấm xử lý
-                if col3.button("PHÊ DUYỆT ✅", key=f"app_{real_row_index}", use_container_width=True):
-                    if approve_entry(real_row_index):
-                        st.toast("Đã phê duyệt!")
-                        st.rerun()
-                
-                if col3.button("XÓA DÒNG 🗑️", key=f"del_{real_row_index}", use_container_width=True):
-                    if delete_entry(real_row_index):
-                        st.toast("Đã xóa bản ghi!")
+                if col2.button("PHÊ DUYỆT ✅", key=f"app_{real_row_index}"):
+                    if approve_entry(real_row_index, st.session_state.admin_email):
+                        st.success(f"Đã duyệt bởi {st.session_state.admin_email}")
                         st.rerun()
 
 with tab_history:
-    st.subheader("Dữ liệu tổng hợp")
-    
-    # Bộ lọc tìm kiếm
-    search = st.text_input("🔍 Tìm kiếm tên nhân viên")
-    display_df = df.copy()
-    if search:
-        display_df = display_df[display_df['Tên người dùng'].str.contains(search, case=False)]
-    
-    st.dataframe(
-        display_df.iloc[::-1], 
-        use_container_width=True, 
-        hide_index=True,
-        column_config={
-            "Tình trạng": st.column_config.TextColumn("Trạng thái", help="Chờ duyệt hoặc Đã duyệt")
-        }
-    )
-
-    # Nút tải dữ liệu về Excel/CSV
-    csv = display_df.to_csv(index=False).encode('utf-8-sig')
-    st.download_button("📥 Tải báo cáo (.CSV)", data=csv, file_name="cham_cong.csv", mime="text/csv")
+    st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
