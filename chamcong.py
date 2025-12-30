@@ -25,34 +25,50 @@ VN_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 # --- 2. HÀM XỬ LÝ (CHẶN TẠI GỐC) ---
 
 def update_check_out_in_sheet(user_email, now_vn, content_note):
-    # LỚP BẢO VỆ 1: CHẶN TẠI HÀM (Nếu content_note trống, thoát ngay)
-    if not content_note or str(content_note).strip() == "":
-        return "ERROR_EMPTY_NOTE"
-
+    # Lấy toàn bộ dữ liệu cột Email và cột Check-out
     emails = SHEET.col_values(2)
     checkouts = SHEET.col_values(4)
+    
     target_row = -1
+    # Duyệt từ dưới lên trên để tìm lần Check-in mới nhất mà chưa Check-out
     for i in range(len(emails) - 1, 0, -1):
         if emails[i].strip() == str(user_email).strip():
+            # Nếu cột Check-out (cột 4) của dòng này còn trống
             if i >= len(checkouts) or not checkouts[i].strip():
                 target_row = i + 1
                 break
     
     if target_row != -1:
-        # CHỈ GHI KHI CÓ GIÁ TRỊ THỰC
         SHEET.update_cell(target_row, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S'))
         SHEET.update_cell(target_row, 5, str(content_note).strip())
         return "SUCCESS"
     return "NOT_FOUND"
 
 def append_check_in_to_sheet(user_email, now_vn):
-    col_b = SHEET.col_values(2)
-    next_row = len([row for row in col_b if row.strip()]) + 1
-    stt_col = SHEET.col_values(1)[1:]
+    """
+    Sử dụng append_row để Google Sheets tự tìm dòng trống cuối cùng, 
+    tránh hoàn toàn việc ghi đè dữ liệu cũ.
+    """
+    clean_email = str(user_email).strip()
+    
+    # Lấy toàn bộ cột STT để tính số thứ tự mới
+    stt_col = SHEET.col_values(1)[1:] # Bỏ qua tiêu đề
     stt_nums = [int(x) for x in stt_col if str(x).isdigit()]
     new_stt = max(stt_nums) + 1 if stt_nums else 1
-    new_row = [new_stt, user_email, now_vn.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt', '']
-    SHEET.update(f"A{next_row}:G{next_row}", [new_row], value_input_option='USER_ENTERED')
+    
+    # Chuẩn bị dữ liệu dòng mới (7 cột)
+    new_row_data = [
+        new_stt, 
+        clean_email, 
+        now_vn.strftime('%Y-%m-%d %H:%M:%S'), 
+        '', # Check out trống
+        '', # Ghi chú trống
+        'Chờ duyệt', 
+        ''  # Người duyệt trống
+    ]
+    
+    # Dùng lệnh append_row để Google tự chèn vào dòng cuối cùng
+    SHEET.append_row(new_row_data, value_input_option='USER_ENTERED')
     return True
 
 # --- 3. GIAO DIỆN (UI) ---
@@ -116,3 +132,4 @@ all_vals = SHEET.get_all_values()
 if len(all_vals) > 1:
     df_view = pd.DataFrame(all_vals[1:], columns=COLUMNS)
     st.dataframe(df_view.iloc[::-1], use_container_width=True, hide_index=True)
+
