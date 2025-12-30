@@ -74,7 +74,7 @@ def append_check_in_to_sheet(user_email, now):
     stt_numbers = [int(x) for x in stt_column if str(x).isdigit()]
     new_stt = max(stt_numbers) + 1 if stt_numbers else 1
     
-    new_row = [new_stt, clean_email, now_vn.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt', 'Người duyệt']
+    new_row = [new_stt, clean_email, now_vn.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt']
     SHEET.update(f"A{next_row}:G{next_row}", [new_row], value_input_option='USER_ENTERED')
     return True
 
