@@ -4,16 +4,7 @@ from datetime import datetime
 import gspread
 import json
 import base64
-import pytz
-
-# Thiết lập múi giờ Việt Nam
-vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-
-# Lấy thời gian hiện tại theo giờ VN
-now_vn = datetime.now(vn_tz)
-
-# Định dạng thời gian để ghi vào sheet
-formatted_time = now_vn.strftime('%Y-%m-%d %H:%M:%S')
+import pytz  # Thư viện xử lý múi giờ
 
 # --- CẤU HÌNH GOOGLE SHEETS ---
 try:
@@ -24,6 +15,7 @@ except Exception:
     st.error("Lỗi: Không tìm thấy cấu hình trong Streamlit Secrets.")
     st.stop()
 
+# Cập nhật đủ 7 cột như yêu cầu của bạn
 COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng', 'Người duyệt'] 
 
 # --- KẾT NỐI ---
@@ -45,27 +37,18 @@ def load_data():
         if len(all_values) <= 1:
             return pd.DataFrame(columns=COLUMNS)
         df = pd.DataFrame(all_values[1:], columns=COLUMNS)
-        df['Thời gian Check in'] = pd.to_datetime(df['Thời gian Check in'], errors='coerce')
-        df['Thời gian Check out'] = pd.to_datetime(df['Thời gian Check out'], errors='coerce')
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(columns=COLUMNS)
 
 def find_next_available_row():
-    # Chỉ đếm những dòng có dữ liệu thực sự ở cột B (Email)
-    # Loại bỏ hoàn toàn các ô trống hoặc chỉ có dấu cách
     col_b = SHEET.col_values(2)
     filled_rows = [row for row in col_b if row.strip()]
     return len(filled_rows) + 1
 
-def append_check_in_to_sheet(user_email, now):
-    vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-    now_vn = datetime.now(vn_tz) # Lấy giờ VN ngay lúc này
-    
-    # KIỂM TRA CUỐI CÙNG TRƯỚC KHI GHI
+def append_check_in_to_sheet(user_email, now_vn):
     clean_email = str(user_email).strip()
-    if not clean_email:
-        return False
+    if not clean_email: return False
 
     load_data.clear()
     next_row = find_next_available_row() + 1
@@ -74,17 +57,13 @@ def append_check_in_to_sheet(user_email, now):
     stt_numbers = [int(x) for x in stt_column if str(x).isdigit()]
     new_stt = max(stt_numbers) + 1 if stt_numbers else 1
     
+    # Ghi đủ 6 cột đầu, cột 7 để trống
     new_row = [new_stt, clean_email, now_vn.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt']
-    SHEET.update(f"A{next_row}:G{next_row}", [new_row], value_input_option='USER_ENTERED')
+    SHEET.update(f"A{next_row}:F{next_row}", [new_row], value_input_option='USER_ENTERED')
     return True
 
-def update_check_out_in_sheet(user_email, now, note):
-    vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-    now_vn = datetime.now(vn_tz) # Lấy giờ VN ngay lúc này
+def update_check_out_in_sheet(user_email, now_vn, note):
     clean_email = str(user_email).strip()
-    if not clean_email:
-        return False
-
     load_data.clear()
     emails = SHEET.col_values(2)
     checkouts = SHEET.col_values(4)
@@ -97,95 +76,67 @@ def update_check_out_in_sheet(user_email, now, note):
                 break
     
     if target_row != -1:
-        SHEET.update_cell(target_row, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S'))
-        SHEET.update_cell(target_row, 5, note)
+        SHEET.update_cell(target_row, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S')) # Cột D
+        SHEET.update_cell(target_row, 5, note) # Cột E
         return True
     return False
 
 # --- STREAMLIT UI ---
-
 st.set_page_config(layout="wide", page_title="Hệ thống Chấm công")
 st.title("⏰ Hệ thống Chấm công")
 
-# Xử lý Email đầu vào
-# --- VỊ TRÍ CHÈN: THAY THẾ TOÀN BỘ PHẦN INPUT VÀ NÚT BẤM CŨ ---
+# Thiết lập múi giờ Việt Nam
+vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
 
-# 1. Tạo một Form để quản lý dữ liệu nhập vào đồng bộ
-with st.form("attendance_form", clear_on_submit=False):
-    st.subheader("📝 Thông tin Chấm công")
+# DÙNG FORM ĐỂ KIỂM SOÁT DỮ LIỆU NHẬP
+with st.form("my_attendance_form"):
+    st.write("### Nhập thông tin của bạn")
     
-    # Nhập Email/Tên
-    raw_email = st.text_input(
-        "📧 Email hoặc Tên người dùng", 
-        value=st.session_state.get('last_user_email', ''), 
-        placeholder="Nhập chính xác tên/email để hệ thống tìm đúng dòng"
-    )
+    email_input = st.text_input("📧 Email / Tên người dùng", 
+                                value=st.session_state.get('last_user_email', ''),
+                                placeholder="Nhập tên để hệ thống tìm đúng dòng của bạn")
     
-    # Nhập Ghi chú
-    note_val = st.text_input(
-        "📍 Ghi chú Địa điểm làm việc (Bắt buộc khi Check Out)", 
-        placeholder="VD: Làm việc tại văn phòng / Remote tại nhà"
-    )
+    note_input = st.text_input("📝 Ghi chú Địa điểm làm việc (BẮT BUỘC KHI CHECK OUT)", 
+                               placeholder="VD: Làm tại văn phòng / Remote")
     
     st.markdown("---")
-    # Chia cột cho 2 nút bấm bên trong Form
-    col_in, col_out = st.columns(2)
-    
-    with col_in:
-        btn_checkin = st.form_submit_button("🟢 CHECK IN", use_container_width=True)
-    with col_out:
-        btn_checkout = st.form_submit_button("🔴 CHECK OUT", use_container_width=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        btn_in = st.form_submit_button("🟢 CHECK IN", use_container_width=True)
+    with c2:
+        btn_out = st.form_submit_button("🔴 CHECK OUT", use_container_width=True)
 
-# 2. XỬ LÝ LOGIC SAU KHI NHẤN NÚT (Nằm ngoài khối 'with st.form')
-user_email = raw_email.strip()
+# XỬ LÝ SAU KHI BẤM NÚT
+user_email = email_input.strip()
 st.session_state.last_user_email = user_email
+current_now = datetime.now(vn_tz)
 
-if btn_checkin:
+if btn_in:
     if not user_email:
-        st.error("❗ LỖI: Vui lòng nhập Email/Tên trước khi Check In.")
+        st.error("❗ Vui lòng nhập Email/Tên trước khi Check In.")
     else:
-        # Lấy giờ Việt Nam (như đã hướng dẫn ở bước trước)
-        vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-        if append_check_in_to_sheet(user_email, datetime.now(vn_tz)):
-            st.toast("Check In thành công!")
+        if append_check_in_to_sheet(user_email, current_now):
+            st.success("Check In thành công!")
             st.rerun()
 
-if btn_checkout:
-    # --- KIỂM TRA ĐIỀU KIỆN GHI CHÚ TẠI ĐÂY ---
+if btn_out:
+    # KIỂM TRA ĐIỀU KIỆN GHI CHÚ NGHIÊM NGẶT
     if not user_email:
-        st.error("❗ LỖI: Vui lòng nhập Email/Tên.")
-    elif not note_val.strip():
-        # NẾU GHI CHÚ TRỐNG -> HIỆN CẢNH BÁO VÀ DỪNG LẠI LUÔN
-        st.warning("⚠️ KHÔNG THỂ CHECK OUT: Bạn phải nhập Ghi chú địa điểm làm việc!")
+        st.error("❗ Vui lòng nhập Email/Tên.")
+    elif not note_input.strip():
+        # NẾU TRỐNG THÌ HIỆN THÔNG BÁO VÀ DỪNG LUÔN, KHÔNG CHẠY LỆNH GHI SHEET
+        st.warning("⚠️ BẠN CHƯA NHẬP GHI CHÚ! Vui lòng nhập địa điểm làm việc để Check Out.")
     else:
-        # CHỈ KHI CÓ GHI CHÚ MỚI CHẠY LỆNH NÀY
-        vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-        if update_check_out_in_sheet(user_email, datetime.now(vn_tz), note_val.strip()):
-            st.toast("Check Out thành công!")
+        # CHỈ KHI CÓ GHI CHÚ MỚI GỌI HÀM CẬP NHẬT SHEET
+        if update_check_out_in_sheet(user_email, current_now, note_input.strip()):
+            st.success("Check Out thành công!")
             st.rerun()
         else:
-            st.error("❌ Không tìm thấy phiên Check In nào chưa đóng của bạn.")
+            st.error("❌ Không tìm thấy lượt Check In nào đang mở cho tên này.")
 
-# --- TIẾP THEO LÀ PHẦN HIỂN THỊ BẢNG DỮ LIỆU (Giữ nguyên phần load_data cũ) ---
-st.markdown("---")
-# ... (phần code df_display bên dưới giữ nguyên)
-
-
-
+# HIỂN THỊ DỮ LIỆU
 st.markdown("---")
 df_display = load_data()
 if not df_display.empty:
-    # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
-
-
-
-
-
-
-
-
-
-
-
