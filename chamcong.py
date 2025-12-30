@@ -22,18 +22,21 @@ except Exception as e:
 COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng', 'Người duyệt']
 VN_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
-# --- 2. HÀM XỬ LÝ DỮ LIỆU ---
+# --- 2. HÀM XỬ LÝ CHỐNG GHI ĐÈ ---
 
 def append_check_in_to_sheet(user_email, now_vn):
-    # Lấy toàn bộ dữ liệu ĐỂ TÍNH STT (Không dùng để tìm dòng)
-    all_data = SHEET.get_all_values()
-    if len(all_data) > 1:
-        stt_list = [int(row[0]) for row in all_data[1:] if row[0].isdigit()]
-        new_stt = max(stt_list) + 1 if stt_list else 1
-    else:
-        new_stt = 1
+    # Lấy toàn bộ dữ liệu cột B (Tên người dùng) để xác định dòng cuối cùng thực sự
+    col_b_values = SHEET.col_values(2) 
+    # Dòng tiếp theo sẽ là số lượng phần tử hiện tại + 1
+    # Nếu chỉ có tiêu đề, col_b_values là 1 phần tử -> dòng tiếp theo là 2.
+    # Nếu đã có 1 người, col_b_values là 2 phần tử -> dòng tiếp theo là 3.
+    next_row = len(col_b_values) + 1
     
-    # Dữ liệu dòng mới
+    # Tính Số thứ tự (STT) dựa trên cột A
+    col_a_values = SHEET.col_values(1)
+    stt_nums = [int(x) for x in col_a_values[1:] if str(x).isdigit()]
+    new_stt = max(stt_nums) + 1 if stt_nums else 1
+    
     new_row = [
         new_stt, 
         str(user_email).strip(), 
@@ -41,44 +44,45 @@ def append_check_in_to_sheet(user_email, now_vn):
         "", "", "Chờ duyệt", ""
     ]
     
-    # LỆNH QUAN TRỌNG NHẤT: append_row sẽ tự động tìm dòng trống cuối cùng của Sheet
-    # value_input_option='USER_ENTERED' giúp định dạng ngày giờ đúng chuẩn
-    SHEET.append_row(new_row, value_input_option='USER_ENTERED')
+    # Ghi dữ liệu vào dải ô chính xác (A{next_row} đến G{next_row})
+    # Việc chỉ định rõ dải ô sẽ ngăn Google Sheets ghi đè lên dòng cũ
+    SHEET.update(f"A{next_row}:G{next_row}", [new_row], value_input_option='USER_ENTERED')
     return True
 
 def update_check_out_in_sheet(user_email, now_vn, note_content):
     if not note_content or str(note_content).strip() == "":
         return "EMPTY_NOTE"
 
-    # Lấy dữ liệu mới nhất (không cache) để tìm dòng
+    # Lấy dữ liệu tươi để tìm dòng
     all_rows = SHEET.get_all_values()
     target_row_idx = -1
     clean_user = str(user_email).strip().lower()
 
-    # Quét ngược từ dòng cuối lên để tìm phiên Check-in mới nhất chưa kết thúc
+    # Quét ngược từ dưới lên để tìm đúng dòng của user chưa check-out
     for i in range(len(all_rows) - 1, 0, -1):
         row = all_rows[i]
         if len(row) > 1 and row[1].strip().lower() == clean_user:
-            # Nếu cột D (index 3) trống, nghĩa là chưa Check-out
+            # Kiểm tra cột D (index 3) có trống không
             if len(row) <= 3 or row[3].strip() == "":
                 target_row_idx = i + 1
                 break
 
     if target_row_idx != -1:
-        # Cập nhật cột D (4) và E (5)
+        # Cập nhật cột D (4) và E (5) bằng tọa độ chính xác
         SHEET.update_cell(target_row_idx, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S'))
         SHEET.update_cell(target_row_idx, 5, str(note_content).strip())
         return "SUCCESS"
     return "NOT_FOUND"
 
-# --- 3. GIAO DIỆN ---
+# --- 3. GIAO DIỆN (UI) ---
 st.set_page_config(layout="wide", page_title="Chấm Công")
 st.title("⏰ Hệ thống Chấm công")
 
-# Dùng Form để ngăn việc gửi dữ liệu rác khi đang gõ
-with st.form("main_form", clear_on_submit=False):
+with st.form("main_form"):
+    st.info("Lưu ý: Bạn phải nhập Ghi chú địa điểm làm việc khi thực hiện Check Out.")
     email_in = st.text_input("📧 Email / Tên người dùng", value=st.session_state.get('last_mail', ''))
     note_in = st.text_input("📝 Ghi chú địa điểm (Bắt buộc khi Check Out)")
+    
     c1, c2 = st.columns(2)
     btn_in = c1.form_submit_button("🟢 CHECK IN", use_container_width=True)
     btn_out = c2.form_submit_button("🔴 CHECK OUT", use_container_width=True)
@@ -93,7 +97,7 @@ if btn_in:
         st.error("Vui lòng nhập tên!")
     else:
         append_check_in_to_sheet(email_final, now)
-        st.success("Đã ghi nhận Check In thành công!")
+        st.success(f"Check In thành công!")
         st.rerun()
 
 if btn_out:
@@ -101,18 +105,18 @@ if btn_out:
     if not email_final:
         st.error("Vui lòng nhập tên!")
     elif not clean_note:
-        st.error("❌ Bạn phải nhập ghi chú địa điểm mới được Check Out!")
+        st.error("❌ LỖI: Bạn phải nhập ghi chú địa điểm mới được Check Out!")
+        st.stop()
     else:
         res = update_check_out_in_sheet(email_final, now, clean_note)
         if res == "SUCCESS":
             st.success("Check Out thành công!")
             st.rerun()
         else:
-            st.error("❌ Không tìm thấy lượt Check In nào chưa hoàn tất của bạn.")
+            st.error("❌ Không tìm thấy lượt Check In nào chưa đóng của bạn.")
 
 # --- 5. HIỂN THỊ ---
 st.write("---")
-# Lấy dữ liệu thực tế để hiển thị
 data_final = SHEET.get_all_values()
 if len(data_final) > 1:
     df = pd.DataFrame(data_final[1:], columns=COLUMNS)
