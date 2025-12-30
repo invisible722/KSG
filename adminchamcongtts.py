@@ -10,7 +10,7 @@ from datetime import datetime
 st.set_page_config(layout="wide", page_title="Quản lý Koshi")
 vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
 
-# --- 2. KẾT NỐI ---
+# --- 2. KẾT NỐI GOOGLE SHEETS ---
 try:
     decoded = json.loads(base64.b64decode(st.secrets["base64_service_account"]).decode('utf-8'))
     gc = gspread.service_account_from_dict(decoded)
@@ -34,29 +34,29 @@ if not st.session_state.admin_logged:
             else: st.error("Sai tài khoản")
     st.stop()
 
-# --- 4. TẢI DỮ LIỆU ---
+# --- 4. TẢI DỮ LIỆU GỐC ---
 data = sh.get_all_values()
 df_full = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 1 else pd.DataFrame()
 
-# --- 5. BỘ LỌC TẠI SIDEBAR VỚI NÚT ÁP DỤNG ---
+# --- 5. SIDEBAR: BỘ LỌC VÀ NÚT ÁP DỤNG ---
 st.sidebar.header("🔍 BỘ LỌC CHUNG")
 
-# Khởi tạo trạng thái lọc trong session_state nếu chưa có
-if 'filter_date' not in st.session_state:
-    st.session_state.filter_date = datetime.now(vn_tz).strftime('%Y-%m-%d')
-if 'filter_user' not in st.session_state:
-    st.session_state.filter_user = "Tất cả"
+# Lưu trạng thái lọc vào session_state để không bị mất khi load lại
+if 'applied_date' not in st.session_state:
+    st.session_state.applied_date = datetime.now(vn_tz).strftime('%Y-%m-%d')
+if 'applied_user' not in st.session_state:
+    st.session_state.applied_user = "Tất cả"
 
-# Widgets nhập liệu
-input_date = st.sidebar.date_input("1. Chọn ngày:", value=datetime.strptime(st.session_state.filter_date, '%Y-%m-%d'))
-names = ["Tất cả"] + sorted(df_full['Tên người dùng'].unique().tolist()) if not df_full.empty else ["Tất cả"]
-input_user = st.sidebar.selectbox("2. Chọn nhân viên:", names, index=names.index(st.session_state.filter_user) if st.session_state.filter_user in names else 0)
+# Widget nhập liệu (Chỉ mang tính chất chọn, chưa tác động ngay)
+pick_date = st.sidebar.date_input("1. Lọc theo ngày:", value=datetime.strptime(st.session_state.applied_date, '%Y-%m-%d'))
+user_list = ["Tất cả"] + sorted(df_full['Tên người dùng'].unique().tolist()) if not df_full.empty else ["Tất cả"]
+pick_user = st.sidebar.selectbox("2. Lọc theo nhân viên:", user_list, index=user_list.index(st.session_state.applied_user) if st.session_state.applied_user in user_list else 0)
 
-# NÚT ÁP DỤNG LỌC
-if st.sidebar.button("🚀 ÁP DỤNG LỌC", use_container_width=True, type="primary"):
-    st.session_state.filter_date = input_date.strftime('%Y-%m-%d')
-    st.session_state.filter_user = input_user
-    st.toast("Đã cập nhật dữ liệu theo bộ lọc!")
+# NÚT BẮT BUỘC NHẤN ĐỂ LỌC
+if st.sidebar.button("🚀 ÁP DỤNG LỌC", type="primary", use_container_width=True):
+    st.session_state.applied_date = pick_date.strftime('%Y-%m-%d')
+    st.session_state.applied_user = pick_user
+    st.rerun() # Làm mới trang để áp dụng giá trị mới cho toàn bộ Tab
 
 st.sidebar.divider()
 if st.sidebar.button("🚪 Đăng xuất"):
@@ -65,15 +65,16 @@ if st.sidebar.button("🚪 Đăng xuất"):
 
 # --- 6. GIAO DIỆN CHÍNH ---
 st.title("🔑 Phê duyệt Chấm công")
+
+# Lấy giá trị đã được CHỐT sau khi nhấn nút
+curr_date = st.session_state.applied_date
+curr_user = st.session_state.applied_user
+
 tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử"])
 
-# --- LẤY GIÁ TRỊ ĐÃ ĐƯỢC ÁP DỤNG ---
-curr_date = st.session_state.filter_date
-curr_user = st.session_state.filter_user
-
-# --- TAB 1: PHÊ DUYỆT ---
+# --- TAB 1: CHỜ PHÊ DUYỆT ---
 with tab1:
-    st.info(f"📅 Đang xem: **{curr_date}** | 👤 Nhân viên: **{curr_user}**")
+    st.info(f"📅 Ngày: **{curr_date}** | 👤 Nhân viên: **{curr_user}**")
     if not df_full.empty:
         pending = df_full[df_full['Tình trạng'] == "Chờ duyệt"].copy()
         if not pending.empty:
@@ -83,49 +84,53 @@ with tab1:
             res = pending[mask]
             
             if res.empty:
-                st.warning("Không có yêu cầu chờ duyệt nào khớp bộ lọc.")
+                st.warning("Không có yêu cầu nào.")
             else:
                 for idx, r in res.iterrows():
                     real_row = idx + 2
                     with st.container(border=True):
                         st.markdown(f"### 👤 {r['Tên người dùng']}")
-                        c_in, c_out = st.columns(2)
-                        with c_in: st.success(f"🛫 **Giờ vào:** {r['Thời gian Check in']}")
-                        with c_out: st.error(f"🛬 **Giờ ra:** {r['Thời gian Check out']}")
-                        if r['Ghi chú']: st.info(f"📝 **Ghi chú:** {r['Ghi chú']}")
+                        c1, c2 = st.columns(2)
+                        with c1: st.success(f"🛫 **Vào:** {r['Thời gian Check in']}")
+                        with c2: st.error(f"🛬 **Ra:** {r['Thời gian Check out']}")
                         
-                        btn1, btn2 = st.columns(2)
-                        if btn1.button("✅ DUYỆT", key=f"ok_{real_row}", use_container_width=True):
+                        btn_a, btn_b = st.columns(2)
+                        if btn_a.button("✅ DUYỆT", key=f"ok_{real_row}"):
                             now = datetime.now(vn_tz).strftime('%H:%M:%S %d-%m-%Y')
                             sh.update_cell(real_row, 6, "Đã duyệt ✅")
                             sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
                             st.rerun()
-                        if btn2.button("❌ TỪ CHỐI", key=f"no_{real_row}", use_container_width=True, type="primary"):
+                        if btn_b.button("❌ TỪ CHỐI", key=f"no_{real_row}", type="primary"):
                             now = datetime.now(vn_tz).strftime('%H:%M:%S %d-%m-%Y')
                             sh.update_cell(real_row, 6, "Từ chối ❌")
                             sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
                             st.rerun()
-        else: st.success("Hết yêu cầu chờ duyệt!")
+        else: st.success("Hết yêu cầu!")
 
-# --- TAB 2: LỊCH SỬ (ĐÃ FIX LỌC THEO NÚT ÁP DỤNG) ---
+# --- TAB 2: LỊCH SỬ (ĐÃ FIX LỖI ĐỒNG BỘ) ---
 with tab2:
-    st.subheader(f"📜 Dữ liệu hệ thống ({curr_date})")
+    st.subheader(f"📜 Dữ liệu: {curr_user} ({curr_date})")
     if not df_full.empty:
-        # Lọc dữ liệu dựa trên giá trị của nút Áp dụng
-        hist = df_full.copy()
-        hist['date_tmp'] = hist['Thời gian Check in'].str[:10]
+        # Clone dữ liệu để xử lý
+        history = df_full.copy()
+        # Chuyển cột thời gian về dạng ngày để so sánh
+        history['day_tmp'] = history['Thời gian Check in'].str[:10]
         
-        # Áp dụng lọc ngày
-        hist = hist[hist['date_tmp'] == curr_date]
-        
-        # Áp dụng lọc tên
+        # ÁP DỤNG LỌC TRIỆT ĐỂ
+        mask_hist = (history['day_tmp'] == curr_date)
         if curr_user != "Tất cả":
-            hist = hist[hist['Tên người dùng'] == curr_user]
-            
-        if hist.empty:
-            st.warning(f"Không có dữ liệu lịch sử cho ngày {curr_date} với nhân viên {curr_user}")
+            mask_hist = mask_hist & (history['Tên người dùng'] == curr_user)
+        
+        final_hist = history[mask_hist]
+        
+        if final_hist.empty:
+            st.warning("Không tìm thấy dữ liệu lịch sử cho lựa chọn này.")
         else:
-            # Sắp xếp mới nhất lên đầu và ẩn cột tạm
-            st.dataframe(hist.drop(columns=['date_tmp']).iloc[::-1], use_container_width=True, hide_index=True)
+            # Hiện bảng, loại bỏ cột tạm và đảo ngược thứ tự
+            st.dataframe(
+                final_hist.drop(columns=['day_tmp']).iloc[::-1], 
+                use_container_width=True, 
+                hide_index=True
+            )
     else:
         st.write("Dữ liệu trống.")
