@@ -3,10 +3,20 @@ import pandas as pd
 import gspread
 import json
 import base64
+import pytz
 from datetime import datetime
 
 # --- CẤU HÌNH TRANG ---
 st.set_page_config(layout="wide", page_title="Admin - Quản lý Chấm công")
+
+# Thiết lập múi giờ Việt Nam
+vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+
+# Lấy thời gian hiện tại theo giờ VN
+now_vn = datetime.now(vn_tz)
+
+# Định dạng thời gian để ghi vào sheet
+formatted_time = now_vn.strftime('%Y-%m-%d %H:%M:%S')
 
 # --- KẾT NỐI GOOGLE SHEETS ---
 try:
@@ -47,11 +57,14 @@ def load_data():
 
 def approve_entry(row_index, admin_email):
     try:
-        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        # Cập nhật cột F (6): Tình trạng
+        vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+        now_vn = datetime.now(vn_tz) # Lấy giờ VN khi admin bấm Duyệt
+        formatted_time = now_vn.strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Cập nhật cột F
         SHEET.update_cell(row_index, 6, "Đã duyệt ✅")
-        # Cập nhật cột G (7): Người duyệt (Email + Thời gian)
-        info_admin = f"{admin_email} ({now})"
+        # Cập nhật cột G với giờ VN
+        info_admin = f"{admin_email} ({formatted_time})"
         SHEET.update_cell(row_index, 7, info_admin)
         return True
     except:
@@ -114,4 +127,5 @@ with tab_pending:
 
 with tab_history:
     st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
