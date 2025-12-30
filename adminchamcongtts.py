@@ -78,14 +78,14 @@ if 'admin_logged_in' not in st.session_state:
 if not st.session_state.admin_logged_in:
     st.title("🔐 Đăng nhập Quản trị")
     with st.form("login_form"):
-        admin_user = st.text_input("Email quản trị (Gmail)", placeholder="example@gmail.com")
+        admin_user = st.text_input("Email quản trị (Gmail)", placeholder="example@koshigroup.vn")
         admin_pass = st.text_input("Mật khẩu truy cập hệ thống", type="password")
         submit = st.form_submit_button("Đăng nhập")
         
         if submit:
             # Lưu ý: Đây là kiểm tra đơn giản. 
             # Bạn có thể thay đổi admin_user/admin_pass theo ý muốn
-            if "@gmail.com" in admin_user and admin_pass == "admin123": 
+            if "@koshigroup.vn" in admin_user and admin_pass == "Koshi@123": 
                 st.session_state.admin_logged_in = True
                 st.session_state.admin_email = admin_user
                 st.rerun()
@@ -117,7 +117,8 @@ with tab_pending:
             
             with st.expander(f"Yêu cầu từ: {row['Tên người dùng']}"):
                 col1, col2 = st.columns([3, 1])
-                col1.write(f"**Thời gian:** {row['Thời gian Check in']}")
+                col1.write(f"**Check In:** {row['Thời gian Check in']}")
+                col1.write(f"**Check Out:** {row['Thời gian Check out']}")
                 col1.write(f"**Ghi chú:** {row['Ghi chú']}")
                 
                 if col2.button("PHÊ DUYỆT ✅", key=f"app_{real_row_index}"):
@@ -127,5 +128,6 @@ with tab_pending:
 
 with tab_history:
     st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
