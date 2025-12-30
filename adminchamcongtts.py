@@ -87,7 +87,7 @@ with tab1:
             with st.container(border=True):
                 st.markdown(f"### 👤 {row['Tên người dùng']}")
                 st.write(f"📍 **Ghi chú:** {row['Ghi chú']}")
-                st.write(f"🕒 **Vào:** {row['Thời gian Check in']} | **Ra:** {row['Thời gian Check out']}")
+                st.write(f"🕒 **Check In:** {row['Thời gian Check in']} | **Check Out:** {row['Thời gian Check out']}")
                 
                 col_app, col_rej = st.columns(2)
                 with col_app:
@@ -134,3 +134,4 @@ with tab2:
 
     if st.button("🔄 Làm mới dữ liệu"):
         st.rerun()
+
