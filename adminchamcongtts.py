@@ -32,14 +32,18 @@ def load_data():
         all_values = SHEET.get_all_values()
         if len(all_values) <= 1:
             return pd.DataFrame(columns=COLUMNS)
-        # Đảm bảo dataframe luôn có đủ số cột định nghĩa
-        df = pd.DataFrame(all_values[1:], columns=COLUMNS[:len(all_values[0])])
-        for col in COLUMNS:
-            if col not in df.columns:
-                df[col] = ""
+        
+        # Lấy dữ liệu từ dòng thứ 2 trở đi
+        data = all_values[1:]
+        
+        # Tự động lấy tên cột từ dòng đầu tiên của Sheet thay vì fix cứng trong code
+        headers = all_values[0]
+        
+        df = pd.DataFrame(data, columns=headers)
         return df
     except Exception as e:
-        return pd.DataFrame(columns=COLUMNS)
+        st.error(f"Lỗi tải dữ liệu: {e}")
+        return pd.DataFrame()
 
 def approve_entry(row_index, admin_email):
     try:
@@ -110,3 +114,4 @@ with tab_pending:
 
 with tab_history:
     st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
+
