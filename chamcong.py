@@ -14,7 +14,7 @@ except Exception:
     st.error("Lỗi: Không tìm thấy cấu hình trong Streamlit Secrets.")
     st.stop()
 
-COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú'] 
+COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng'] 
 
 # --- KẾT NỐI ---
 try:
@@ -146,6 +146,7 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
 
