@@ -12,12 +12,6 @@ st.set_page_config(layout="wide", page_title="Admin - Quản lý Chấm công")
 # Thiết lập múi giờ Việt Nam
 vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
 
-# Lấy thời gian hiện tại theo giờ VN
-now_vn = datetime.now(vn_tz)
-
-# Định dạng thời gian để ghi vào sheet
-formatted_time = now_vn.strftime('%Y-%m-%d %H:%M:%S')
-
 # --- KẾT NỐI GOOGLE SHEETS ---
 try:
     SHEET_ID = st.secrets["sheet_id"] 
@@ -32,7 +26,6 @@ except Exception as e:
     st.error(f"Lỗi cấu hình/kết nối: {e}")
     st.stop()
 
-# Định nghĩa các cột (Thêm cột Người duyệt)
 COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng', 'Người duyệt']
 
 # --- FUNCTIONS ---
@@ -43,27 +36,24 @@ def load_data():
         if len(all_values) <= 1:
             return pd.DataFrame(columns=COLUMNS)
         
-        # Lấy dữ liệu từ dòng thứ 2 trở đi
         data = all_values[1:]
-        
-        # Tự động lấy tên cột từ dòng đầu tiên của Sheet thay vì fix cứng trong code
         headers = all_values[0]
-        
         df = pd.DataFrame(data, columns=headers)
         return df
     except Exception as e:
         st.error(f"Lỗi tải dữ liệu: {e}")
         return pd.DataFrame()
 
-def approve_entry(row_index, admin_email):
+# Hàm xử lý chung cho cả Duyệt và Từ chối
+def process_entry(row_index, admin_email, status):
     try:
         vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
-        now_vn = datetime.now(vn_tz) # Lấy giờ VN khi admin bấm Duyệt
+        now_vn = datetime.now(vn_tz)
         formatted_time = now_vn.strftime('%Y-%m-%d %H:%M:%S')
         
-        # Cập nhật cột F
-        SHEET.update_cell(row_index, 6, "Đã duyệt ✅")
-        # Cập nhật cột G với giờ VN
+        # Cập nhật cột F (Tình trạng)
+        SHEET.update_cell(row_index, 6, status)
+        # Cập nhật cột G (Người duyệt + Thời gian)
         info_admin = f"{admin_email} ({formatted_time})"
         SHEET.update_cell(row_index, 7, info_admin)
         return True
@@ -83,15 +73,13 @@ if not st.session_state.admin_logged_in:
         submit = st.form_submit_button("Đăng nhập")
         
         if submit:
-            # Lưu ý: Đây là kiểm tra đơn giản. 
-            # Bạn có thể thay đổi admin_user/admin_pass theo ý muốn
             if "@koshigroup.vn" in admin_user and admin_pass == "Koshi@123": 
                 st.session_state.admin_logged_in = True
                 st.session_state.admin_email = admin_user
                 st.rerun()
             else:
                 st.error("Email không hợp lệ hoặc sai mật khẩu!")
-    st.stop() # Dừng lại không cho xem nội dung bên dưới nếu chưa login
+    st.stop()
 
 # --- GIAO DIỆN SAU KHI ĐĂNG NHẬP ---
 
@@ -103,10 +91,10 @@ if st.sidebar.button("Đăng xuất"):
 st.title("🔑 Hệ thống Phê duyệt Chấm công")
 
 df = load_data()
-
 tab_pending, tab_history = st.tabs(["⏳ Chờ phê duyệt", "📜 Toàn bộ lịch sử"])
 
 with tab_pending:
+    # Đảm bảo lọc đúng cột 'Tình trạng'
     pending_df = df[df['Tình trạng'] == "Chờ duyệt"]
     
     if pending_df.empty:
@@ -116,18 +104,26 @@ with tab_pending:
             real_row_index = index + 2
             
             with st.expander(f"Yêu cầu từ: {row['Tên người dùng']}"):
-                col1, col2 = st.columns([3, 1])
-                col1.write(f"**Check In:** {row['Thời gian Check in']}")
-                col1.write(f"**Check Out:** {row['Thời gian Check out']}")
-                col1.write(f"**Ghi chú:** {row['Ghi chú']}")
+                col_info, col_btn1, col_btn2 = st.columns([3, 1, 1])
                 
-                if col2.button("PHÊ DUYỆT ✅", key=f"app_{real_row_index}"):
-                    if approve_entry(real_row_index, st.session_state.admin_email):
-                        st.success(f"Đã duyệt bởi {st.session_state.admin_email}")
-                        st.rerun()
+                with col_info:
+                    st.write(f"**Check In:** {row['Thời gian Check in']}")
+                    st.write(f"**Check Out:** {row['Thời gian Check out']}")
+                    st.write(f"**Ghi chú:** {row['Ghi chú']}")
+                
+                # Nút Phê duyệt
+                with col_btn1:
+                    if st.button("PHÊ DUYỆT ✅", key=f"app_{real_row_index}", use_container_width=True):
+                        if process_entry(real_row_index, st.session_state.admin_email, "Đã duyệt ✅"):
+                            st.success("Đã phê duyệt!")
+                            st.rerun()
+                
+                # Nút Từ chối
+                with col_btn2:
+                    if st.button("TỪ CHỐI ❌", key=f"rej_{real_row_index}", use_container_width=True):
+                        if process_entry(real_row_index, st.session_state.admin_email, "Từ chối ❌"):
+                            st.warning("Đã từ chối yêu cầu!")
+                            st.rerun()
 
 with tab_history:
     st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
-
-
-
