@@ -61,8 +61,8 @@ def append_check_in_to_sheet(user_email, now):
     stt_numbers = [int(x) for x in stt_column if str(x).isdigit()]
     new_stt = max(stt_numbers) + 1 if stt_numbers else 1
     
-    new_row = [new_stt, clean_email, now.strftime('%Y-%m-%d %H:%M:%S'), '', '']
-    SHEET.update(f"A{next_row}:E{next_row}", [new_row], value_input_option='USER_ENTERED')
+    new_row = [new_stt, clean_email, now.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt']
+    SHEET.update(f"A{next_row}:F{next_row}", [new_row], value_input_option='USER_ENTERED')
     return True
 
 def update_check_out_in_sheet(user_email, now, note):
@@ -146,6 +146,7 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
 
