@@ -26,59 +26,52 @@ VN_TZ = pytz.timezone('Asia/Ho_Chi_Minh')
 
 def append_check_in_to_sheet(user_email, now_vn):
     """
-    Tạo dòng mới ở cuối cùng.
+    Sử dụng chèn dòng trực tiếp để đảm bảo không bao giờ ghi đè dòng 2.
     """
+    # Lấy toàn bộ dữ liệu hiện tại
     all_data = SHEET.get_all_values()
-    if len(all_data) > 1:
-        # Lấy STT cao nhất hiện tại để cộng thêm 1
-        stt_list = [int(row[0]) for row in all_data[1:] if row[0].isdigit()]
-        new_stt = max(stt_list) + 1 if stt_list else 1
-    else:
-        new_stt = 1
     
-    # Tạo mảng dữ liệu 7 cột chuẩn
-    new_row = [new_stt, str(user_email).strip(), now_vn.strftime('%Y-%m-%d %H:%M:%S'), "", "", "Chờ duyệt", ""]
+    # Tính STT mới dựa trên số dòng hiện có (không bao gồm tiêu đề)
+    new_stt = len(all_data) if len(all_data) > 0 else 1
     
-    # Lệnh append_row luôn chèn vào dòng trống cuối cùng của Sheet
-    SHEET.append_row(new_row, value_input_option='USER_ENTERED')
+    # Tạo dữ liệu dòng mới
+    new_row = [
+        new_stt, 
+        str(user_email).strip(), 
+        now_vn.strftime('%Y-%m-%d %H:%M:%S'), 
+        "", "", "Chờ duyệt", ""
+    ]
+    
+    # LUÔN CHÈN VÀO CUỐI: Cách này an toàn hơn append_row thông thường
+    SHEET.insert_row(new_row, index=len(all_data) + 1, value_input_option='USER_ENTERED')
     return True
 
 def update_check_out_in_sheet(user_email, now_vn, note_content):
     """
-    Logic tìm dòng ngược từ dưới lên để tránh ghi đè dữ liệu cũ đã hoàn tất.
+    Tìm dòng mới nhất chưa Check-out của user để cập nhật.
     """
     if not note_content or str(note_content).strip() == "":
         return "EMPTY_NOTE"
 
-    # Lấy toàn bộ dữ liệu hiện tại để xử lý chính xác
+    # Lấy dữ liệu mới nhất
     all_rows = SHEET.get_all_values()
     target_row_idx = -1
     clean_user = str(user_email).strip().lower()
 
-    # DUYỆT NGƯỢC TỪ DÒNG CUỐI CÙNG LÊN TRÊN
+    # Quét ngược từ dòng cuối lên
     for i in range(len(all_rows) - 1, 0, -1):
         row = all_rows[i]
-        
-        # Kiểm tra xem dòng có đủ số cột không (phòng trường hợp dòng trống cuối sheet)
-        if len(row) < 2: continue
-        
-        row_user = str(row[1]).strip().lower()
-        
-        # ĐIỀU KIỆN QUAN TRỌNG: 
-        # 1. Tên người dùng khớp
-        # 2. Cột Check-out (index 3) PHẢI ĐANG TRỐNG
-        if row_user == clean_user:
-            # Kiểm tra nếu cột 4 (index 3) chưa có dữ liệu
+        # Kiểm tra tên khớp và Cột D (index 3) còn trống
+        if len(row) > 1 and row[1].strip().lower() == clean_user:
             if len(row) <= 3 or row[3].strip() == "":
-                target_row_idx = i + 1 # +1 vì gspread tính từ dòng 1
-                break # Dừng ngay khi tìm thấy dòng mới nhất thỏa mãn
+                target_row_idx = i + 1
+                break
 
     if target_row_idx != -1:
-        # Thực hiện cập nhật đúng dòng đã tìm thấy
-        SHEET.update_cell(target_row_idx, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S')) # Cột D
-        SHEET.update_cell(target_row_idx, 5, str(note_content).strip()) # Cột E
+        # Cập nhật cột 4 (D) và 5 (E)
+        SHEET.update_cell(target_row_idx, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S'))
+        SHEET.update_cell(target_row_idx, 5, str(note_content).strip())
         return "SUCCESS"
-    
     return "NOT_FOUND"
 
 # --- 3. GIAO DIỆN ---
@@ -99,7 +92,7 @@ now = datetime.now(VN_TZ)
 
 if btn_in:
     if not email_final:
-        st.error("Vui lòng nhập Email/Tên!")
+        st.error("Vui lòng nhập tên!")
     else:
         append_check_in_to_sheet(email_final, now)
         st.success("Đã ghi nhận Check In vào dòng mới!")
@@ -108,22 +101,19 @@ if btn_in:
 if btn_out:
     clean_note = note_in.strip()
     if not email_final:
-        st.error("Vui lòng nhập Email/Tên!")
+        st.error("Vui lòng nhập tên!")
     elif not clean_note:
-        st.error("❌ CHẶN: Bạn phải nhập ghi chú địa điểm để Check Out!")
+        st.error("❌ Bạn phải nhập ghi chú địa điểm để Check Out!")
     else:
         res = update_check_out_in_sheet(email_final, now, clean_note)
         if res == "SUCCESS":
             st.success("Check Out thành công!")
             st.rerun()
-        elif res == "NOT_FOUND":
-            st.error("❌ Không tìm thấy lượt Check In nào đang mở cho bạn. Hãy Check In trước!")
         else:
-            st.error("❌ Lỗi không xác định.")
+            st.error("❌ Không tìm thấy lượt Check In nào đang mở cho bạn.")
 
 # --- 5. HIỂN THỊ ---
 st.write("---")
-# Lấy dữ liệu tươi trực tiếp không qua cache để kiểm tra
 data_final = SHEET.get_all_values()
 if len(data_final) > 1:
     df = pd.DataFrame(data_final[1:], columns=COLUMNS)
