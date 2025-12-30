@@ -40,25 +40,26 @@ data = sh.get_all_values()
 df = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 1 else pd.DataFrame()
 
 # --- 5. BỘ LỌC TẠI SIDEBAR ---
-st.sidebar.header("🔍 BỘ LỌC")
-f_date = st.sidebar.date_input("Chọn ngày:", value=datetime.now(vn_tz))
+st.sidebar.header("🔍 BỘ LỌC CHUNG")
+f_date = st.sidebar.date_input("Lọc theo ngày:", value=datetime.now(vn_tz))
 str_date = f_date.strftime('%Y-%m-%d')
 
 if not df.empty:
     list_names = ["Tất cả"] + sorted(df['Tên người dùng'].unique().tolist())
 else:
     list_names = ["Tất cả"]
-f_user = st.sidebar.selectbox("Chọn nhân viên:", list_names)
+f_user = st.sidebar.selectbox("Lọc theo nhân viên:", list_names)
 
 # --- 6. GIAO DIỆN CHÍNH ---
 st.title("🔑 Phê duyệt Chấm công")
+
+# Hiển thị thanh trạng thái lọc
+st.info(f"📅 Ngày đang chọn: **{str_date}** | 👤 Nhân viên: **{f_user}**")
 
 tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử"])
 
 # --- TAB 1: PHÊ DUYỆT ---
 with tab1:
-    st.info(f"📅 Ngày: **{str_date}** | 👤 Nhân viên: **{f_user}**")
-    
     if not df.empty:
         pending = df[df['Tình trạng'] == "Chờ duyệt"].copy()
         if not pending.empty:
@@ -74,27 +75,31 @@ with tab1:
                 for idx, r in res.iterrows():
                     real_row = idx + 2
                     with st.container(border=True):
-                        # Hiển thị Tên nhân viên
                         st.markdown(f"### 👤 {r['Tên người dùng']}")
                         
-                        # HIỂN THỊ GIỜ VÀO / GIỜ RA CHI TIẾT
-                        col_time1, col_time2 = st.columns(2)
-                        with col_time1:
-                            st.success(f"🛫 **Giờ vào:** {r['Thời gian Check in']}")
-                        with col_time2:
-                            st.error(f"🛬 **Giờ ra:** {r['Thời gian Check out']}")
+                        # --- KHU VỰC HIỂN THỊ GIỜ VÀO GIỜ RA ---
+                        c_in, c_out = st.columns(2)
+                        with c_in:
+                            st.markdown(f"**🛫 GIỜ VÀO:**")
+                            st.code(r['Thời gian Check in'], language='text')
+                        with c_out:
+                            st.markdown(f"**🛬 GIỜ RA:**")
+                            st.code(r['Thời gian Check out'], language='text')
                         
-                        # Ghi chú
-                        st.markdown(f"📝 **Ghi chú:** {r['Ghi chú']}")
+                        # Hiển thị Ghi chú
+                        if r['Ghi chú']:
+                            st.info(f"📝 **Ghi chú:** {r['Ghi chú']}")
                         
-                        # Nút bấm
-                        c1, c2 = st.columns(2)
-                        if c1.button("✅ DUYỆT", key=f"ok_{real_row}", use_container_width=True):
+                        st.write("---")
+                        
+                        # Nút bấm phê duyệt
+                        btn1, btn2 = st.columns(2)
+                        if btn1.button("✅ DUYỆT", key=f"ok_{real_row}", use_container_width=True):
                             now = datetime.now(vn_tz).strftime('%H:%M:%S %d-%m-%Y')
                             sh.update_cell(real_row, 6, "Đã duyệt ✅")
                             sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
                             st.rerun()
-                        if c2.button("❌ TỪ CHỐI", key=f"no_{real_row}", use_container_width=True, type="primary"):
+                        if btn2.button("❌ TỪ CHỐI", key=f"no_{real_row}", use_container_width=True, type="primary"):
                             now = datetime.now(vn_tz).strftime('%H:%M:%S %d-%m-%Y')
                             sh.update_cell(real_row, 6, "Từ chối ❌")
                             sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
