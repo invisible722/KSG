@@ -23,16 +23,15 @@ except Exception as e:
     st.error(f"Lỗi cấu hình: {e}")
     st.stop()
 
-COLUMNS = ['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng', 'Người duyệt']
-
 # --- 3. FUNCTIONS ---
 def load_data():
     try:
         all_values = SHEET.get_all_values()
-        if len(all_values) <= 1: return pd.DataFrame(columns=COLUMNS)
+        if len(all_values) <= 1:
+            return pd.DataFrame(columns=['Số thứ tự', 'Tên người dùng', 'Thời gian Check in', 'Thời gian Check out', 'Ghi chú', 'Tình trạng', 'Người duyệt'])
         return pd.DataFrame(all_values[1:], columns=all_values[0])
     except:
-        return pd.DataFrame(columns=COLUMNS)
+        return pd.DataFrame()
 
 def process_action(row_idx, admin_email, status_label):
     try:
@@ -52,7 +51,7 @@ if not st.session_state.admin_logged_in:
     with st.form("login"):
         user = st.text_input("Email", placeholder="admin@koshigroup.vn")
         pw = st.text_input("Mật khẩu", type="password")
-        if st.form_submit_button("Vào hệ thống"):
+        if st.form_submit_button("Đăng nhập"):
             if "@koshigroup.vn" in user and pw == "Koshi@123":
                 st.session_state.admin_logged_in = True
                 st.session_state.admin_email = user
@@ -68,76 +67,79 @@ if st.sidebar.button("Đăng xuất"):
 
 st.title("🔑 Phê duyệt & Quản lý Chấm công")
 
-df = load_data()
+# Tải dữ liệu toàn bộ một lần
+df_full = load_data()
+
 tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử & Bộ lọc"])
 
 # --- TAB 1: PHÊ DUYỆT ---
 with tab1:
-    st.subheader("🔍 Lọc yêu cầu chờ duyệt")
+    st.subheader("🔍 Bộ lọc yêu cầu")
     
-    # Lấy danh sách nhân viên để lọc (Lấy từ toàn bộ DF để dropdown luôn có dữ liệu)
-    all_employee_names = ["Tất cả"] + sorted(df['Tên người dùng'].unique().tolist())
+    # LUÔN HIỂN THỊ BỘ LỌC TẠI ĐÂY
+    col_filter_1, col_filter_2 = st.columns(2)
     
-    # KHU VỰC BỘ LỌC - Đặt ngoài điều kiện if để luôn hiển thị
-    c1, c2 = st.columns(2)
-    with c1:
-        filter_date = st.date_input("Chọn ngày:", value=datetime.now(vn_tz), key="final_p_date")
-    with c2:
-        filter_user = st.selectbox("Chọn nhân viên:", all_employee_names, key="final_p_user")
-
-    # XỬ LÝ DỮ LIỆU
-    target_date_str = filter_date.strftime('%Y-%m-%d')
-    pending = df[df['Tình trạng'] == "Chờ duyệt"].copy()
-    
-    if not pending.empty:
-        pending['only_date'] = pending['Thời gian Check in'].str[:10]
+    with col_filter_1:
+        # Lọc theo ngày
+        f_date = st.date_input("1. Chọn ngày:", value=datetime.now(vn_tz), key="date_p")
+        str_date = f_date.strftime('%Y-%m-%d')
         
-        # Lọc 1: Ngày
-        mask = (pending['only_date'] == target_date_str)
-        # Lọc 2: Tên (nếu không chọn Tất cả)
-        if filter_user != "Tất cả":
-            mask = mask & (pending['Tên người dùng'] == filter_user)
-            
-        final_pending = pending[mask]
-
-        if final_pending.empty:
-            st.info(f"Không có yêu cầu nào của **{filter_user}** trong ngày **{target_date_str}**.")
+    with col_filter_2:
+        # Lấy danh sách tên nhân viên từ TOÀN BỘ dữ liệu để ô này không bao giờ bị mất
+        if not df_full.empty and 'Tên người dùng' in df_full.columns:
+            list_names = ["Tất cả"] + sorted(df_full['Tên người dùng'].unique().tolist())
         else:
-            st.warning(f"Có {len(final_pending)} yêu cầu chờ duyệt:")
-            for idx, row in final_pending.iterrows():
-                real_row = idx + 2
-                with st.container(border=True):
-                    st.markdown(f"### 👤 {row['Tên người dùng']}")
-                    st.write(f"📍 **Ghi chú:** {row['Ghi chú']}")
-                    st.write(f"🕒 **Vào:** {row['Thời gian Check in']} | **Ra:** {row['Thời gian Check out']}")
-                    
-                    btn_c1, btn_c2 = st.columns(2)
-                    with btn_c1:
-                        if st.button("✅ DUYỆT", key=f"v_app_{real_row}", use_container_width=True):
-                            if process_action(real_row, st.session_state.admin_email, "Đã duyệt ✅"):
-                                st.toast("Đã duyệt!")
-                                st.rerun()
-                    with btn_c2:
-                        if st.button("❌ TỪ CHỐI", key=f"v_rej_{real_row}", use_container_width=True, type="primary"):
-                            if process_action(real_row, st.session_state.admin_email, "Từ chối ❌"):
-                                st.toast("Đã từ chối!")
-                                st.rerun()
+            list_names = ["Tất cả"]
+        
+        f_user = st.selectbox("2. Chọn nhân viên:", list_names, key="user_p")
+
+    st.write("---") # Đường kẻ phân cách
+
+    # XỬ LÝ DỮ LIỆU SAU KHI ĐÃ CÓ BỘ LỌC
+    if not df_full.empty:
+        # Lọc những người đang "Chờ duyệt"
+        pending = df_full[df_full['Tình trạng'] == "Chờ duyệt"].copy()
+        
+        if not pending.empty:
+            # Lọc theo ngày
+            pending['date_check'] = pending['Thời gian Check in'].str[:10]
+            mask = (pending['date_check'] == str_date)
+            
+            # Lọc theo tên (nếu không phải Tất cả)
+            if f_user != "Tất cả":
+                mask = mask & (pending['Tên người dùng'] == f_user)
+            
+            df_display = pending[mask]
+            
+            if df_display.empty:
+                st.info(f"Không có yêu cầu chờ duyệt nào khớp với lựa chọn (Ngày: {str_date}, Tên: {f_user}).")
+            else:
+                st.warning(f"Tìm thấy {len(df_display)} yêu cầu:")
+                for idx, row in df_display.iterrows():
+                    real_idx = idx + 2
+                    with st.container(border=True):
+                        st.markdown(f"### 👤 {row['Tên người dùng']}")
+                        st.write(f"🕒 **Vào:** {row['Thời gian Check in']} | **Ra:** {row['Thời gian Check out']}")
+                        st.write(f"📝 **Ghi chú:** {row['Ghi chú']}")
+                        
+                        c1, c2 = st.columns(2)
+                        with c1:
+                            if st.button("✅ DUYỆT", key=f"a_{real_idx}", use_container_width=True):
+                                if process_action(real_idx, st.session_state.admin_email, "Đã duyệt ✅"):
+                                    st.toast("Đã duyệt!")
+                                    st.rerun()
+                        with c2:
+                            if st.button("❌ TỪ CHỐI", key=f"r_{real_idx}", use_container_width=True, type="primary"):
+                                if process_action(real_idx, st.session_state.admin_email, "Từ chối ❌"):
+                                    st.toast("Đã từ chối!")
+                                    st.rerun()
+        else:
+            st.success("Hiện tại không có bất kỳ yêu cầu nào đang chờ phê duyệt.")
     else:
-        st.success("Hiện tại không có yêu cầu nào đang chờ phê duyệt trên hệ thống.")
+        st.error("Không thể tải dữ liệu từ Google Sheets.")
 
 # --- TAB 2: LỊCH SỬ ---
 with tab2:
     st.subheader("📜 Toàn bộ lịch sử")
-    all_users_hist = ["Tất cả"] + sorted(df['Tên người dùng'].unique().tolist())
-    
-    h1, h2 = st.columns(2)
-    u_hist = h1.selectbox("Lọc nhân viên:", all_users_hist, key="h_user")
-    n_hist = h2.text_input("Tìm ghi chú:", key="h_note")
-    
-    hist_df = df.copy()
-    if u_hist != "Tất cả":
-        hist_df = hist_df[hist_df['Tên người dùng'] == u_hist]
-    if n_hist:
-        hist_df = hist_df[hist_df['Ghi chú'].str.contains(n_hist, case=False, na=False)]
-        
-    st.dataframe(hist_df.iloc[::-1], use_container_width=True, hide_index=True)
+    if not df_full.empty:
+        st.dataframe(df_full.iloc[::-1], use_container_width=True, hide_index=True)
