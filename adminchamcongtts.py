@@ -6,102 +6,125 @@ import base64
 import pytz
 from datetime import datetime
 
-# 1. Cấu hình
-st.set_page_config(layout="wide", page_title="Hệ thống Admin")
+# --- 1. CẤU HÌNH ---
+st.set_page_config(layout="wide", page_title="Quản lý Chấm công")
 vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
 
-# 2. Kết nối Google Sheet
+# --- 2. KẾT NỐI (Dùng secrets) ---
 try:
-    creds = json.loads(base64.b64decode(st.secrets["base64_service_account"]).decode('utf-8'))
-    client = gspread.service_account_from_dict(creds)
-    sheet = client.open_by_key(st.secrets["sheet_id"]).worksheet(st.secrets["worksheet_name"])
+    decoded = json.loads(base64.b64decode(st.secrets["base64_service_account"]).decode('utf-8'))
+    gc = gspread.service_account_from_dict(decoded)
+    sh = gc.open_by_key(st.secrets["sheet_id"]).worksheet(st.secrets["worksheet_name"])
 except Exception as e:
-    st.error(f"Lỗi kết nối: {e}")
+    st.error(f"Lỗi kết nối Sheet: {e}")
     st.stop()
 
-# 3. Hàm xử lý cập nhật
-def run_update(row_idx, status, admin_mail):
-    now = datetime.now(vn_tz).strftime('%H:%M:%S %d-%m-%Y')
-    sheet.update_cell(row_idx, 6, status) # Cột Tình trạng
-    sheet.update_cell(row_idx, 7, f"{admin_mail} ({now})") # Cột Người duyệt
+# --- 3. ĐĂNG NHẬP ---
+if 'admin_ok' not in st.session_state: st.session_state.admin_ok = False
 
-# 4. Kiểm tra Đăng nhập
-if 'logged_in' not in st.session_state: st.session_state.logged_in = False
-
-if not st.session_state.logged_in:
-    with st.form("Login_Form"):
-        u = st.text_input("Email Admin")
+if not st.session_state.admin_ok:
+    with st.container(border=True):
+        st.title("🔐 Đăng nhập hệ thống")
+        u = st.text_input("Email")
         p = st.text_input("Mật khẩu", type="password")
-        if st.form_submit_button("Đăng nhập"):
+        if st.button("Vào hệ thống"):
             if "@koshigroup.vn" in u and p == "Koshi@123":
-                st.session_state.logged_in = True
-                st.session_state.admin_user = u
+                st.session_state.admin_ok = True
+                st.session_state.mail = u
                 st.rerun()
+            else: st.error("Sai tài khoản!")
     st.stop()
 
-# 5. GIAO DIỆN CHÍNH (Sau khi đăng nhập)
-st.title("🔑 HỆ THỐNG PHÊ DUYỆT")
+# --- 4. GIAO DIỆN CHÍNH (KHÔNG DÙNG TAB ĐỂ TRÁNH LỖI) ---
+st.title("🔑 Phê duyệt & Quản lý Chấm công")
 
 # Tải dữ liệu tươi
-raw_data = sheet.get_all_values()
-df = pd.DataFrame(raw_data[1:], columns=raw_data[0]) if len(raw_data) > 1 else pd.DataFrame()
+data = sh.get_all_values()
+df = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 1 else pd.DataFrame()
 
-# --- KHỐI BỘ LỌC CƯỠNG BỨC (LUÔN HIỆN TRÊN ĐẦU) ---
+# --- KHỐI BỘ LỌC TỔNG (LUÔN HIỂN THỊ) ---
 with st.container(border=True):
-    st.markdown("#### 🔍 Bộ lọc tìm kiếm nhanh")
-    col1, col2 = st.columns(2)
-    with col1:
-        # Lọc Ngày
-        pick_date = st.date_input("Bước 1: Chọn ngày", value=datetime.now(vn_tz))
-        target_day = pick_date.strftime('%Y-%m-%d')
-    with col2:
-        # Lọc Tên (Lấy từ toàn bộ nhân viên đã từng chấm công)
-        all_staff = ["Tất cả"] + sorted(df['Tên người dùng'].unique().tolist()) if not df.empty else ["Tất cả"]
-        pick_user = st.selectbox("Bước 2: Chọn nhân viên", all_staff)
+    st.markdown("### 🔍 BỘ LỌC TÌM KIẾM")
+    c1, c2, c3 = st.columns([2, 2, 1])
+    
+    with c1:
+        f_date = st.date_input("1. Lọc theo ngày:", value=datetime.now(vn_tz))
+        str_date = f_date.strftime('%Y-%m-%d')
+    
+    with c2:
+        # Lấy danh sách tên từ cột 'Tên người dùng'
+        if not df.empty and 'Tên người dùng' in df.columns:
+            list_names = ["Tất cả"] + sorted(df['Tên người dùng'].unique().tolist())
+        else:
+            list_names = ["Tất cả"]
+        f_user = st.selectbox("2. Lọc theo nhân viên:", list_names)
+    
+    with c3:
+        st.write("") # Căn lề
+        if st.button("🔄 Làm mới", use_container_width=True):
+            st.rerun()
 
 st.divider()
 
-# --- CHIA TAB HIỂN THỊ ---
-t_pending, t_history = st.tabs(["⏳ CHỜ DUYỆT", "📜 LỊCH SỬ"])
+# --- PHẦN 1: XỬ LÝ PHÊ DUYỆT ---
+st.header("⏳ Yêu cầu chờ phê duyệt")
 
-with t_pending:
-    if not df.empty:
-        # Lọc danh sách: Phải là 'Chờ duyệt' + Khớp ngày + Khớp tên
-        pending_list = df[df['Tình trạng'] == "Chờ duyệt"].copy()
+if not df.empty:
+    # Lọc danh sách chờ duyệt
+    pending = df[df['Tình trạng'] == "Chờ duyệt"].copy()
+    
+    if not pending.empty:
+        # Chuẩn hóa ngày
+        pending['date_check'] = pending['Thời gian Check in'].str[:10]
         
-        if not pending_list.empty:
-            # Xử lý cột ngày để lọc chính xác
-            pending_list['day_only'] = pending_list['Thời gian Check in'].str[:10]
-            
-            # Áp dụng bộ lọc từ trên
-            mask = (pending_list['day_only'] == target_day)
-            if pick_user != "Tất cả":
-                mask = mask & (pending_list['Tên người dùng'] == pick_user)
-            
-            final_view = pending_list[mask]
-            
-            if final_view.empty:
-                st.info(f"Không có yêu cầu nào của **{pick_user}** trong ngày **{target_day}**")
-            else:
-                st.write(f"Tìm thấy **{len(final_view)}** yêu cầu cần duyệt:")
-                for idx, r in final_view.iterrows():
-                    real_row_num = idx + 2
-                    with st.container(border=True):
-                        st.subheader(f"👤 {r['Tên người dùng']}")
-                        st.write(f"🕒 {r['Thời gian Check in']} → {r['Thời gian Check out']}")
-                        st.write(f"📍 Ghi chú: {r['Ghi chú']}")
-                        
-                        btn_c1, btn_c2 = st.columns(2)
-                        if btn_c1.button("✅ DUYỆT", key=f"ok_{real_row_num}", use_container_width=True):
-                            run_update(real_row_num, "Đã duyệt ✅", st.session_state.admin_user)
-                            st.rerun()
-                        if btn_c2.button("❌ TỪ CHỐI", key=f"no_{real_row_num}", use_container_width=True, type="primary"):
-                            run_update(real_row_num, "Từ chối ❌", st.session_state.admin_user)
-                            st.rerun()
+        # Áp dụng bộ lọc
+        mask = (pending['date_check'] == str_date)
+        if f_user != "Tất cả":
+            mask = mask & (pending['Tên người dùng'] == f_user)
+        
+        res = pending[mask]
+        
+        if res.empty:
+            st.info(f"Không có yêu cầu nào của **{f_user}** vào ngày **{str_date}**")
         else:
-            st.success("Không có ai đang chờ duyệt.")
+            for idx, r in res.iterrows():
+                real_row = idx + 2
+                with st.container(border=True):
+                    col_info, col_btn = st.columns([3, 1])
+                    with col_info:
+                        st.subheader(f"👤 {r['Tên người dùng']}")
+                        st.write(f"🕒 **Vào:** {r['Thời gian Check in']} | **Ra:** {r['Thời gian Check out']}")
+                        st.write(f"📍 **Ghi chú:** {r['Ghi chú']}")
+                    
+                    with col_btn:
+                        st.write("")
+                        if st.button("✅ DUYỆT", key=f"a_{real_row}", use_container_width=True):
+                            now = datetime.now(vn_tz).strftime('%Y-%m-%d %H:%M:%S')
+                            sh.update_cell(real_row, 6, "Đã duyệt ✅")
+                            sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
+                            st.toast("Đã duyệt!")
+                            st.rerun()
+                            
+                        if st.button("❌ TỪ CHỐI", key=f"r_{real_row}", use_container_width=True, type="primary"):
+                            now = datetime.now(vn_tz).strftime('%Y-%m-%d %H:%M:%S')
+                            sh.update_cell(real_row, 6, "Từ chối ❌")
+                            sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
+                            st.toast("Đã từ chối!")
+                            st.rerun()
     else:
-        st.error("Dữ liệu trống.")
+        st.success("Không còn yêu cầu nào cần duyệt.")
 
-with t_history:
-    st.dataframe(df.iloc[::-1], use_container_width=True)
+st.divider()
+
+# --- PHẦN 2: LỊCH SỬ ---
+st.header("📜 Toàn bộ lịch sử")
+if not df.empty:
+    # Áp dụng bộ lọc nhân viên cho bảng lịch sử bên dưới luôn
+    hist_df = df.copy()
+    if f_user != "Tất cả":
+        hist_df = hist_df[hist_df['Tên người dùng'] == f_user]
+    
+    st.dataframe(hist_df.iloc[::-1], use_container_width=True, hide_index=True)
+
+# --- NÚT ĐĂNG XUẤT ---
+st.sidebar.button("Đăng xuất", on_click=lambda: st.session_state.update({"admin_ok": False}))
