@@ -31,6 +31,7 @@ def load_data():
     try:
         all_values = SHEET.get_all_values()
         if len(all_values) <= 1: return pd.DataFrame(columns=COLUMNS)
+        # Sử dụng headers từ dòng 1 của sheet
         return pd.DataFrame(all_values[1:], columns=all_values[0])
     except:
         return pd.DataFrame(columns=COLUMNS)
@@ -63,46 +64,73 @@ if not st.session_state.admin_logged_in:
     st.stop()
 
 # --- 5. GIAO DIỆN CHÍNH ---
-st.sidebar.write(f"Đang dùng: {st.session_state.admin_email}")
-if st.sidebar.button("Thoát"):
+st.sidebar.write(f"👤 Admin: **{st.session_state.admin_email}**")
+if st.sidebar.button("Đăng xuất"):
     st.session_state.admin_logged_in = False
     st.rerun()
 
-st.title("🔑 Phê duyệt Chấm công")
+st.title("🔑 Phê duyệt & Quản lý Chấm công")
+
+# Tải dữ liệu từ Sheet
 df = load_data()
 
-tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử"])
+tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử & Bộ lọc"])
 
+# --- TAB 1: PHÊ DUYỆT ---
 with tab1:
-    # Lọc danh sách chờ duyệt
     pending = df[df['Tình trạng'] == "Chờ duyệt"]
-    
     if pending.empty:
         st.success("Hết yêu cầu chờ duyệt!")
     else:
         for idx, row in pending.iterrows():
             real_row = idx + 2
-            # Tạo một khung bao quanh mỗi yêu cầu
             with st.container(border=True):
                 st.markdown(f"### 👤 {row['Tên người dùng']}")
                 st.write(f"📍 **Ghi chú:** {row['Ghi chú']}")
                 st.write(f"🕒 **Vào:** {row['Thời gian Check in']} | **Ra:** {row['Thời gian Check out']}")
                 
-                # CHIA CỘT NÚT BẤM (ÉP HIỆN 2 NÚT)
                 col_app, col_rej = st.columns(2)
-                
                 with col_app:
                     if st.button("✅ DUYỆT", key=f"v_approve_{real_row}", use_container_width=True):
                         if process_action(real_row, st.session_state.admin_email, "Đã duyệt ✅"):
                             st.success("Đã duyệt!")
                             st.rerun()
-                
                 with col_rej:
-                    # Nút từ chối dùng màu đỏ (primary) để nổi bật
                     if st.button("❌ TỪ CHỐI", key=f"v_reject_{real_row}", use_container_width=True, type="primary"):
                         if process_action(real_row, st.session_state.admin_email, "Từ chối ❌"):
                             st.warning("Đã từ chối!")
                             st.rerun()
 
+# --- TAB 2: LỊCH SỬ & BỘ LỌC TÊN ---
 with tab2:
-    st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
+    st.subheader("🔍 Bộ lọc lịch sử")
+    
+    # 1. Tạo danh sách tên nhân viên (duy nhất) để lọc
+    list_employees = ["Tất cả"] + sorted(df['Tên người dùng'].unique().tolist())
+    
+    # 2. Giao diện bộ lọc
+    col_filter1, col_filter2 = st.columns([1, 1])
+    with col_filter1:
+        selected_user = st.selectbox("Chọn nhân viên:", list_employees)
+    with col_filter2:
+        search_note = st.text_input("Tìm theo ghi chú:", placeholder="Nhập từ khóa...")
+
+    # 3. Logic lọc dữ liệu
+    filtered_df = df.copy()
+    
+    if selected_user != "Tất cả":
+        filtered_df = filtered_df[filtered_df['Tên người dùng'] == selected_user]
+    
+    if search_note:
+        filtered_df = filtered_df[filtered_df['Ghi chú'].str.contains(search_note, case=False, na=False)]
+
+    # 4. Hiển thị kết quả
+    st.write(f"Đang hiển thị **{len(filtered_df)}** dòng dữ liệu.")
+    st.dataframe(
+        filtered_df.iloc[::-1], # Hiện mới nhất lên đầu
+        use_container_width=True, 
+        hide_index=True
+    )
+
+    if st.button("🔄 Làm mới dữ liệu"):
+        st.rerun()
