@@ -21,7 +21,6 @@ except Exception as e:
 
 # --- 3. ĐĂNG NHẬP ---
 if 'admin_logged' not in st.session_state: st.session_state.admin_logged = False
-
 if not st.session_state.admin_logged:
     st.title("🔐 Đăng nhập Admin")
     with st.form("login"):
@@ -39,7 +38,7 @@ if not st.session_state.admin_logged:
 data = sh.get_all_values()
 df = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 1 else pd.DataFrame()
 
-# --- 5. BỘ LỌC TẠI SIDEBAR ---
+# --- 5. BỘ LỌC TẠI SIDEBAR (Dùng chung cho cả 2 Tab) ---
 st.sidebar.header("🔍 BỘ LỌC CHUNG")
 f_date = st.sidebar.date_input("Lọc theo ngày:", value=datetime.now(vn_tz))
 str_date = f_date.strftime('%Y-%m-%d')
@@ -52,21 +51,17 @@ f_user = st.sidebar.selectbox("Lọc theo nhân viên:", list_names)
 
 # --- 6. GIAO DIỆN CHÍNH ---
 st.title("🔑 Phê duyệt Chấm công")
-
-# Hiển thị thanh trạng thái lọc
-st.info(f"📅 Ngày đang chọn: **{str_date}** | 👤 Nhân viên: **{f_user}**")
-
 tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử"])
 
 # --- TAB 1: PHÊ DUYỆT ---
 with tab1:
+    st.info(f"📅 Ngày: **{str_date}** | 👤 Nhân viên: **{f_user}**")
     if not df.empty:
         pending = df[df['Tình trạng'] == "Chờ duyệt"].copy()
         if not pending.empty:
             pending['d'] = pending['Thời gian Check in'].str[:10]
             mask = (pending['d'] == str_date)
             if f_user != "Tất cả": mask = mask & (pending['Tên người dùng'] == f_user)
-            
             res = pending[mask]
             
             if res.empty:
@@ -76,23 +71,11 @@ with tab1:
                     real_row = idx + 2
                     with st.container(border=True):
                         st.markdown(f"### 👤 {r['Tên người dùng']}")
-                        
-                        # --- KHU VỰC HIỂN THỊ GIỜ VÀO GIỜ RA ---
                         c_in, c_out = st.columns(2)
-                        with c_in:
-                            st.markdown(f"**🛫 GIỜ VÀO:**")
-                            st.code(r['Thời gian Check in'], language='text')
-                        with c_out:
-                            st.markdown(f"**🛬 GIỜ RA:**")
-                            st.code(r['Thời gian Check out'], language='text')
+                        with c_in: st.success(f"🛫 **Vào:** {r['Thời gian Check in']}")
+                        with c_out: st.error(f"🛬 **Ra:** {r['Thời gian Check out']}")
+                        if r['Ghi chú']: st.info(f"📝 **Ghi chú:** {r['Ghi chú']}")
                         
-                        # Hiển thị Ghi chú
-                        if r['Ghi chú']:
-                            st.info(f"📝 **Ghi chú:** {r['Ghi chú']}")
-                        
-                        st.write("---")
-                        
-                        # Nút bấm phê duyệt
                         btn1, btn2 = st.columns(2)
                         if btn1.button("✅ DUYỆT", key=f"ok_{real_row}", use_container_width=True):
                             now = datetime.now(vn_tz).strftime('%H:%M:%S %d-%m-%Y')
@@ -104,10 +87,29 @@ with tab1:
                             sh.update_cell(real_row, 6, "Từ chối ❌")
                             sh.update_cell(real_row, 7, f"{st.session_state.mail} ({now})")
                             st.rerun()
-        else:
-            st.success("Hết yêu cầu chờ duyệt!")
+        else: st.success("Hết yêu cầu chờ duyệt!")
 
-# --- TAB 2: LỊCH SỬ ---
+# --- TAB 2: LỊCH SỬ (ĐÃ SỬA LỖI LỌC) ---
 with tab2:
-    st.subheader("📜 Dữ liệu hệ thống")
-    st.dataframe(df.iloc[::-1], use_container_width=True, hide_index=True)
+    st.subheader(f"📜 Dữ liệu: {f_user} ({str_date})")
+    if not df.empty:
+        # 1. Tạo bản sao để lọc
+        history_display = df.copy()
+        
+        # 2. Lọc theo NGÀY (Lấy 10 ký tự đầu YYYY-MM-DD của cột Check in)
+        history_display['date_tmp'] = history_display['Thời gian Check in'].str[:10]
+        history_display = history_display[history_display['date_tmp'] == str_date]
+        
+        # 3. Lọc theo TÊN NHÂN VIÊN
+        if f_user != "Tất cả":
+            history_display = history_display[history_display['Tên người dùng'] == f_user]
+            
+        # 4. Hiển thị bảng (đảo ngược để thấy mới nhất lên đầu)
+        if history_display.empty:
+            st.write("_Không có dữ liệu lịch sử cho lựa chọn này._")
+        else:
+            # Loại bỏ cột phụ dùng để lọc trước khi hiện
+            final_table = history_display.drop(columns=['date_tmp'])
+            st.dataframe(final_table.iloc[::-1], use_container_width=True, hide_index=True)
+    else:
+        st.write("Dữ liệu trống.")
