@@ -60,61 +60,55 @@ if not st.session_state.admin_logged_in:
     st.stop()
 
 # --- 5. GIAO DIỆN CHÍNH ---
+
+# --- TẢI DỮ LIỆU ---
+df_full = load_data()
+
+# --- BỘ LỌC CỐ ĐỊNH TẠI SIDEBAR ---
+st.sidebar.title("🔍 BỘ LỌC HỆ THỐNG")
 st.sidebar.write(f"👤 Admin: **{st.session_state.admin_email}**")
+
+# Widget lọc ngày
+f_date = st.sidebar.date_input("1. Chọn ngày xem:", value=datetime.now(vn_tz))
+str_date = f_date.strftime('%Y-%m-%d')
+
+# Widget lọc tên
+if not df_full.empty:
+    list_names = ["Tất cả"] + sorted(df_full['Tên người dùng'].unique().tolist())
+else:
+    list_names = ["Tất cả"]
+f_user = st.sidebar.selectbox("2. Chọn nhân viên:", list_names)
+
 if st.sidebar.button("Đăng xuất"):
     st.session_state.admin_logged_in = False
     st.rerun()
 
+# --- HIỂN THỊ NỘI DUNG CHÍNH ---
 st.title("🔑 Phê duyệt & Quản lý Chấm công")
-
-# Tải dữ liệu
-df_full = load_data()
-
-tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Lịch sử & Bộ lọc"])
+tab1, tab2 = st.tabs(["⏳ Chờ phê duyệt", "📜 Toàn bộ lịch sử"])
 
 # --- TAB 1: PHÊ DUYỆT ---
 with tab1:
-    st.subheader("🔍 Lọc yêu cầu chờ duyệt")
+    st.info(f"📅 Đang xem ngày: **{str_date}** | 👤 Nhân viên: **{f_user}**")
     
-    # ÉP BUỘC HIỂN THỊ BỘ LỌC TẠI ĐÂY (Nằm ngoài mọi câu lệnh IF dữ liệu)
-    c1, c2 = st.columns(2)
-    
-    with c1:
-        f_date = st.date_input("1. Chọn ngày:", value=datetime.now(vn_tz), key="final_date_p")
-        str_date = f_date.strftime('%Y-%m-%d')
-        
-    with c2:
-        # Lấy danh sách tên từ toàn bộ data để dropdown luôn tồn tại
-        if not df_full.empty and 'Tên người dùng' in df_full.columns:
-            list_names = ["Tất cả"] + sorted(df_full['Tên người dùng'].unique().tolist())
-        else:
-            list_names = ["Tất cả"]
-        f_user = st.selectbox("2. Chọn nhân viên:", list_names, key="final_user_p")
-
-    st.divider()
-
-    # BẮT ĐẦU XỬ LÝ DỮ LIỆU ĐỂ HIỂN THỊ
     if not df_full.empty:
-        # 1. Chỉ lấy những người đang "Chờ duyệt"
+        # Lấy danh sách chờ duyệt
         pending = df_full[df_full['Tình trạng'] == "Chờ duyệt"].copy()
         
         if not pending.empty:
-            # 2. Tạo cột phụ để lọc ngày
-            pending['date_only'] = pending['Thời gian Check in'].astype(str).str[:10]
+            # Chuẩn hóa cột ngày để lọc
+            pending['date_only'] = pending['Thời gian Check in'].astype(str).str.extract(r'(\d{4}-\d{2}-\d{2})')
             
-            # 3. Lọc theo ngày đã chọn
+            # Thực hiện lọc theo Sidebar
             mask = (pending['date_only'] == str_date)
-            
-            # 4. Lọc thêm theo tên (nếu không phải "Tất cả")
             if f_user != "Tất cả":
                 mask = mask & (pending['Tên người dùng'] == f_user)
             
             final_df = pending[mask]
             
             if final_df.empty:
-                st.info(f"Không có yêu cầu chờ duyệt nào khớp với: Ngày {str_date} | Nhân viên: {f_user}")
+                st.write("👉 *Không tìm thấy yêu cầu chờ duyệt nào khớp với bộ lọc ở Sidebar.*")
             else:
-                st.warning(f"Có {len(final_df)} yêu cầu đang chờ:")
                 for idx, row in final_df.iterrows():
                     real_idx = idx + 2
                     with st.container(border=True):
@@ -136,10 +130,10 @@ with tab1:
         else:
             st.success("Tất cả yêu cầu đã được xử lý xong!")
     else:
-        st.error("Không tìm thấy dữ liệu trên Sheet.")
+        st.error("Không có dữ liệu.")
 
 # --- TAB 2: LỊCH SỬ ---
 with tab2:
-    st.subheader("📜 Nhật ký hệ thống")
+    st.subheader("📜 Toàn bộ nhật ký")
     if not df_full.empty:
         st.dataframe(df_full.iloc[::-1], use_container_width=True, hide_index=True)
