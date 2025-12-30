@@ -108,61 +108,67 @@ st.set_page_config(layout="wide", page_title="Hệ thống Chấm công")
 st.title("⏰ Hệ thống Chấm công")
 
 # Xử lý Email đầu vào
-raw_email = st.text_input("📧 Email người dùng", value=st.session_state.get('last_user_email', ''), placeholder="Nhập email hoặc Tên của bạn (vd: user@gmail.com hoặc Nguyễn Văn A)-Lưu ý tên Check in và Check out phải nhập giống nhau")
-user_email = raw_email.strip() # Loại bỏ khoảng trắng thừa
+# --- VỊ TRÍ CHÈN: THAY THẾ TOÀN BỘ PHẦN INPUT VÀ NÚT BẤM CŨ ---
+
+# 1. Tạo một Form để quản lý dữ liệu nhập vào đồng bộ
+with st.form("attendance_form", clear_on_submit=False):
+    st.subheader("📝 Thông tin Chấm công")
+    
+    # Nhập Email/Tên
+    raw_email = st.text_input(
+        "📧 Email hoặc Tên người dùng", 
+        value=st.session_state.get('last_user_email', ''), 
+        placeholder="Nhập chính xác tên/email để hệ thống tìm đúng dòng"
+    )
+    
+    # Nhập Ghi chú
+    note_val = st.text_input(
+        "📍 Ghi chú Địa điểm làm việc (Bắt buộc khi Check Out)", 
+        placeholder="VD: Làm việc tại văn phòng / Remote tại nhà"
+    )
+    
+    st.markdown("---")
+    # Chia cột cho 2 nút bấm bên trong Form
+    col_in, col_out = st.columns(2)
+    
+    with col_in:
+        btn_checkin = st.form_submit_button("🟢 CHECK IN", use_container_width=True)
+    with col_out:
+        btn_checkout = st.form_submit_button("🔴 CHECK OUT", use_container_width=True)
+
+# 2. XỬ LÝ LOGIC SAU KHI NHẤN NÚT (Nằm ngoài khối 'with st.form')
+user_email = raw_email.strip()
 st.session_state.last_user_email = user_email
 
+if btn_checkin:
+    if not user_email:
+        st.error("❗ LỖI: Vui lòng nhập Email/Tên trước khi Check In.")
+    else:
+        # Lấy giờ Việt Nam (như đã hướng dẫn ở bước trước)
+        vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+        if append_check_in_to_sheet(user_email, datetime.now(vn_tz)):
+            st.toast("Check In thành công!")
+            st.rerun()
+
+if btn_checkout:
+    # --- KIỂM TRA ĐIỀU KIỆN GHI CHÚ TẠI ĐÂY ---
+    if not user_email:
+        st.error("❗ LỖI: Vui lòng nhập Email/Tên.")
+    elif not note_val.strip():
+        # NẾU GHI CHÚ TRỐNG -> HIỆN CẢNH BÁO VÀ DỪNG LẠI LUÔN
+        st.warning("⚠️ KHÔNG THỂ CHECK OUT: Bạn phải nhập Ghi chú địa điểm làm việc!")
+    else:
+        # CHỈ KHI CÓ GHI CHÚ MỚI CHẠY LỆNH NÀY
+        vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+        if update_check_out_in_sheet(user_email, datetime.now(vn_tz), note_val.strip()):
+            st.toast("Check Out thành công!")
+            st.rerun()
+        else:
+            st.error("❌ Không tìm thấy phiên Check In nào chưa đóng của bạn.")
+
+# --- TIẾP THEO LÀ PHẦN HIỂN THỊ BẢNG DỮ LIỆU (Giữ nguyên phần load_data cũ) ---
 st.markdown("---")
-col1, col2, col3 = st.columns([1, 1, 3])
-
-with col1:
-    if st.button("🟢 CHECK IN", use_container_width=True):
-        if not user_email:
-            st.error("❗ KHÔNG THỂ GHI: Ô Email đang trống.")
-        else:
-            if append_check_in_to_sheet(user_email, datetime.now()):
-                st.toast("Check In thành công!")
-                st.rerun()
-            else:
-                st.error("Lỗi dữ liệu thực thi.")
-
-with col2:
-    if st.button("🔴 CHECK OUT", use_container_width=True):
-        # 1. Kiểm tra Email/Tên người dùng
-        if not user_email:
-            st.error("❗ KHÔNG THỂ GHI: Ô Email/Tên đang trống.")
-            st.stop() # Dừng xử lý ngay lập tức
-        
-        # 2. Lấy ghi chú và kiểm tra nghiêm ngặt
-        # .strip() loại bỏ dấu cách thừa, nếu chỉ nhập toàn dấu cách sẽ trở thành chuỗi rỗng ""
-        note_val = st.session_state.get('work_note_input_widget', '').strip()
-        
-        if note_val == "":
-            st.warning("⚠️ CHƯA NHẬP GHI CHÚ: Bạn phải nhập 'Địa điểm làm việc' trước khi Check Out!")
-            # Không gọi hàm update_check_out_in_sheet khi chưa có ghi chú
-        else:
-            # 3. Chỉ khi có ghi chú mới tiến hành ghi vào Google Sheet
-            if update_check_out_in_sheet(user_email, datetime.now(), note_val):
-                st.toast("✅ Check Out thành công!")
-                # Xóa sạch ô ghi chú sau khi hoàn tất
-                st.session_state['work_note_input_widget'] = ""
-                st.rerun()
-            else:
-                st.error("❌ Không tìm thấy dữ liệu Check In chưa đóng của bạn.")
-
-with col3:
-
-    # Note input field
-
-    note = st.text_input(
-
-        "📝 **Ghi chú Địa điểm làm việc (sẽ được lưu khi Check Out)**", 
-
-        key='work_note_input_widget', 
-
-        placeholder="VD: Làm việc tại văn phòng/remote"
-
-    )
+# ... (phần code df_display bên dưới giữ nguyên)
 
 
 
@@ -172,6 +178,7 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
 
