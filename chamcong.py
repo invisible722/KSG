@@ -4,6 +4,16 @@ from datetime import datetime
 import gspread
 import json
 import base64
+import pytz
+
+# Thiết lập múi giờ Việt Nam
+vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+
+# Lấy thời gian hiện tại theo giờ VN
+now_vn = datetime.now(vn_tz)
+
+# Định dạng thời gian để ghi vào sheet
+formatted_time = now_vn.strftime('%Y-%m-%d %H:%M:%S')
 
 # --- CẤU HÌNH GOOGLE SHEETS ---
 try:
@@ -49,6 +59,9 @@ def find_next_available_row():
     return len(filled_rows) + 1
 
 def append_check_in_to_sheet(user_email, now):
+    vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+    now_vn = datetime.now(vn_tz) # Lấy giờ VN ngay lúc này
+    
     # KIỂM TRA CUỐI CÙNG TRƯỚC KHI GHI
     clean_email = str(user_email).strip()
     if not clean_email:
@@ -61,11 +74,13 @@ def append_check_in_to_sheet(user_email, now):
     stt_numbers = [int(x) for x in stt_column if str(x).isdigit()]
     new_stt = max(stt_numbers) + 1 if stt_numbers else 1
     
-    new_row = [new_stt, clean_email, now.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt']
+    new_row = [new_stt, clean_email, now_vn.strftime('%Y-%m-%d %H:%M:%S'), '', '', 'Chờ duyệt']
     SHEET.update(f"A{next_row}:F{next_row}", [new_row], value_input_option='USER_ENTERED')
     return True
 
 def update_check_out_in_sheet(user_email, now, note):
+    vn_tz = pytz.timezone('Asia/Ho_Chi_Minh')
+    now_vn = datetime.now(vn_tz) # Lấy giờ VN ngay lúc này
     clean_email = str(user_email).strip()
     if not clean_email:
         return False
@@ -82,7 +97,7 @@ def update_check_out_in_sheet(user_email, now, note):
                 break
     
     if target_row != -1:
-        SHEET.update_cell(target_row, 4, now.strftime('%Y-%m-%d %H:%M:%S'))
+        SHEET.update_cell(target_row, 4, now_vn.strftime('%Y-%m-%d %H:%M:%S'))
         SHEET.update_cell(target_row, 5, note)
         return True
     return False
@@ -146,6 +161,7 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
 
