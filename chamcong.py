@@ -131,13 +131,21 @@ with col2:
         if not user_email:
             st.error("❗ KHÔNG THỂ GHI: Ô Email đang trống.")
         else:
-            note_val = st.session_state.get('work_note_input_widget', '')
-            if update_check_out_in_sheet(user_email, datetime.now(), note_val):
-                st.toast("Check Out thành công!")
-                st.session_state['work_note_input_widget'] = ""
-                st.rerun()
+            # Lấy nội dung ghi chú từ session_state (được liên kết với widget ở col3)
+            note_val = st.session_state.get('work_note_input_widget', '').strip()
+            
+            # --- BỔ SUNG ĐIỀU KIỆN KIỂM TRA GHI CHÚ ---
+            if not note_val:
+                st.warning("⚠️ VUI LÒNG BỔ SUNG: Bạn cần nhập 'Ghi chú Địa điểm làm việc' trước khi Check Out.")
             else:
-                st.error("Không tìm thấy phiên Check In chưa đóng.")
+                # Nếu đã có ghi chú, tiến hành cập nhật vào Google Sheet
+                if update_check_out_in_sheet(user_email, datetime.now(), note_val):
+                    st.toast("Check Out thành công!")
+                    # Xóa nội dung ghi chú sau khi lưu thành công
+                    st.session_state['work_note_input_widget'] = ""
+                    st.rerun()
+                else:
+                    st.error("Không tìm thấy phiên Check In chưa đóng của bạn.")
 
 with col3:
 
@@ -161,6 +169,7 @@ if not df_display.empty:
     # Hiển thị dữ liệu, lọc bỏ các dòng mà cột 'Tên người dùng' bị trống (nếu lỡ có dòng lỗi cũ)
     valid_df = df_display[df_display['Tên người dùng'].str.strip() != ""]
     st.dataframe(valid_df.iloc[::-1], use_container_width=True, hide_index=True)
+
 
 
 
